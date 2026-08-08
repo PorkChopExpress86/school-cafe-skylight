@@ -58,40 +58,58 @@ def get_week_dates(reference: date) -> list[date]:
     return [monday + timedelta(days=i) for i in range(5)]
 
 
-def format_day(entries: Any) -> str | None:
-    if entries is None:
-        return None
-    if isinstance(entries, str):
-        return None if "not published" in entries.lower() else None
+@dataclass(frozen=True)
+class DayMenu:
+    """One day of menu items, normalized for easy UI consumption."""
 
-    lines: list[str] = []
+    date: date
+    items: list[str]
 
+    @property
+    def weekday(self) -> str:
+        return self.date.strftime("%A")
+
+
+def extract_items(entries: Any) -> list[str]:
+    """Flatten both API response shapes (list or sectioned dict) into a list of items."""
+    out: list[str] = []
     if isinstance(entries, list):
         for item in entries:
-            if not isinstance(item, dict):
-                continue
-            desc = str(item.get("MenuItemDescription", "")).strip()
-            if desc:
-                lines.append(f"  - {desc.lower().title()}")
-
-    elif isinstance(entries, dict):
-        for section, items in entries.items():
-            if not isinstance(items, list):
-                continue
-            section_lines: list[str] = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
+            if isinstance(item, dict):
                 desc = str(item.get("MenuItemDescription", "")).strip()
                 if desc:
-                    section_lines.append(f"  - {desc.lower().title()}")
-            if section_lines:
-                lines.append(f"  {section.strip().lower().title()}:")
-                lines.extend(section_lines)
-                lines.append("")
+                    out.append(desc)
+    elif isinstance(entries, dict):
+        for section_items in entries.values():
+            if not isinstance(section_items, list):
+                continue
+            for item in section_items:
+                if isinstance(item, dict):
+                    desc = str(item.get("MenuItemDescription", "")).strip()
+                    if desc:
+                        out.append(desc)
+    return out
 
-    content = "\n".join(lines).strip()
-    return content if content else None
+
+def get_weekly_items(config: SchoolCafeConfig, reference: date) -> list[DayMenu]:
+    """Fetch the SchoolCafé week containing `reference` and return a list of DayMenu.
+
+    Each DayMenu has a `date` and an `items` list. Days with no published menu
+    still appear in the result with an empty `items` list, so callers can render
+    a consistent Mon-Fri view.
+    """
+    payload = fetch_weekly_menu(config, reference)
+    return [
+        DayMenu(date=d, items=extract_items(payload.get(date_key(d))))
+        for d in get_week_dates(reference)
+    ]
+
+
+def format_day(entries: Any) -> str | None:
+    items = extract_items(entries)
+    if not items:
+        return None
+    return "\n".join(f"  - {item.lower().title()}" for item in items)
 
 
 def print_menu(

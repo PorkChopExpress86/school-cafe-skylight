@@ -21,3 +21,4 @@ venv/
 # Generated output
 menu-*.json
 skylight-out.json
+app.db
