@@ -1,0 +1,23 @@
+# .env contains real credentials — never commit it.
+.env
+*.local.env
+
+# pyskylight caches the OAuth token at ~/.cache/pyskylight/token.json (0600) — fine, but keep it out of repo just in case.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tooling state
+.idea/
+.vscode/
+
+# Generated output
+menu-*.json
+skylight-out.json
