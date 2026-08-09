@@ -1,22 +1,60 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { useAdmin, useOverride, useSync } from "../hooks/useApi"
+import { useAdmin, useLlmCasing, useOverride, useSync } from "../hooks/useApi"
+import type { AdminItem } from "../types"
 
 export default function AdminPage() {
   const { data, isLoading, error } = useAdmin()
   const overrideMutation = useOverride()
   const syncMutation = useSync()
+  const llmCasingMutation = useLlmCasing()
   const [edits, setEdits] = useState<Record<string, string>>({})
+  const [searchQuery, setSearchQuery] = useState("")
+
+  // Deduplicate menu items into a list of unique descriptions.
+  const uniqueItems = useMemo(() => {
+    if (!data?.items) return []
+    const map = new Map<string, AdminItem>()
+    for (const item of data.items) {
+      if (!map.has(item.description)) {
+        map.set(item.description, item)
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.display_description.localeCompare(b.display_description)
+    )
+  }, [data?.items])
+
+  const filteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return uniqueItems
+    const q = searchQuery.toLowerCase()
+    return uniqueItems.filter(
+      (item) =>
+        item.display_description.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q)
+    )
+  }, [uniqueItems, searchQuery])
 
   if (isLoading) {
-    return <div className="max-w-5xl mx-auto px-4 py-6 text-slate-500">Loading admin...</div>
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-slate-300">
+        <div className="flex items-center gap-3 bg-slate-900 px-6 py-4 rounded-xl border border-slate-800 shadow-xl backdrop-blur">
+          <div className="w-5 h-5 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+          <span className="font-medium text-slate-200">Loading Menu Sync Admin...</span>
+        </div>
+      </div>
+    )
   }
 
   if (error || !data) {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="mb-4 p-3 rounded-md bg-amber-100 text-amber-800 border border-amber-300 text-sm">
-          Could not load admin data. {error instanceof Error ? error.message : ""}
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="p-4 rounded-xl bg-red-950/80 text-red-200 border border-red-800/80 shadow-lg text-sm flex items-center gap-3">
+          <span className="text-xl">⚠️</span>
+          <div>
+            <strong className="font-semibold text-red-100">Could not load admin data.</strong>
+            <p className="mt-0.5 opacity-90">{error instanceof Error ? error.message : "Network error"}</p>
+          </div>
         </div>
       </div>
     )
@@ -27,180 +65,283 @@ export default function AdminPage() {
     overrideMutation.mutate({ original, replacement })
   }
 
+  const handleClear = (original: string) => {
+    setEdits((prev) => ({ ...prev, [original]: "" }))
+    overrideMutation.mutate({ original, replacement: "" })
+  }
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-700">Menu sync admin</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage menu item display text and view sync history.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            to="/"
-            className="px-3 py-1.5 text-xs font-medium rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300"
-          >
-            &larr; Dashboard
-          </Link>
-          <button
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-            className="px-3 py-1.5 text-xs font-medium rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50"
-          >
-            {syncMutation.isPending ? "Syncing..." : "Sync now"}
-          </button>
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-12">
+      {/* Top Patriot Accent Bar */}
+      <div className="h-1.5 w-full bg-gradient-to-r from-blue-700 via-red-600 to-amber-400"></div>
+
+      <header className="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-30 backdrop-blur-md shadow-md">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-900 to-red-900 border border-red-500/30 flex items-center justify-center text-amber-400 text-lg font-bold shadow-inner">
+              ⚙️
+            </div>
+            <div>
+              <h1 className="text-lg font-extrabold text-white tracking-tight">Menu Sync Admin</h1>
+              <p className="text-xs text-slate-400">Post Elementary School • CFISD</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              to="/"
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 transition-all shadow-sm"
+            >
+              &larr; Dashboard
+            </Link>
+            <button
+              onClick={() => llmCasingMutation.mutate()}
+              disabled={llmCasingMutation.isPending}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white border border-blue-500/30 transition-all shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {llmCasingMutation.isPending ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  <span>Running AI Casing...</span>
+                </>
+              ) : (
+                <>
+                  <span>🤖</span>
+                  <span>Auto-Case All (Gemini AI)</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border border-red-500/30 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            >
+              {syncMutation.isPending ? "Syncing..." : "Sync now"}
+            </button>
+          </div>
         </div>
       </header>
 
-      {syncMutation.data && (
-        <div
-          className={`p-3 rounded-md border text-sm ${
-            syncMutation.data.ok
-              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-              : "bg-amber-100 text-amber-800 border-amber-300"
-          }`}
-        >
-          {syncMutation.data.message}
-        </div>
-      )}
-
-      {/* Last sync status */}
-      <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
-        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Last sync</h2>
-        {data.last_success ? (
-          <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Success
-            </span>
-            <span className="text-sm text-slate-700">
-              {data.last_success.attempted_at} &mdash; {data.last_success.items_stored} items across{" "}
-              {data.last_success.weeks_fetched} weeks
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-red-100 text-red-800 border border-red-200">
-              No successful sync yet
-            </span>
+      <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+        {llmCasingMutation.data && (
+          <div
+            className={`p-4 rounded-xl border text-sm flex items-center gap-3 shadow-md ${
+              llmCasingMutation.data.ok
+                ? "bg-blue-950/80 text-blue-200 border-blue-800/80"
+                : "bg-amber-950/80 text-amber-200 border-amber-800/80"
+            }`}
+          >
+            <span>🤖</span>
+            <div>{llmCasingMutation.data.message}</div>
           </div>
         )}
-      </section>
 
-      {/* Sync history */}
-      <section className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
-          <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Sync history</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Most recent first. Sunday cron + 2-hour retries for 48 hours on failure.
-          </p>
-        </div>
-        {data.attempts.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-slate-400 italic text-center">
-            No sync attempts yet. Run the Sunday cron or click "Sync now".
+        {syncMutation.data && (
+          <div
+            className={`p-4 rounded-xl border text-sm flex items-center gap-3 shadow-md ${
+              syncMutation.data.ok
+                ? "bg-emerald-950/80 text-emerald-200 border-emerald-800/80"
+                : "bg-amber-950/80 text-amber-200 border-amber-800/80"
+            }`}
+          >
+            <span>{syncMutation.data.ok ? "✅" : "⚠️"}</span>
+            <div>{syncMutation.data.message}</div>
           </div>
-        ) : (
-          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
-            {data.attempts.map((a, i) => (
-              <div key={i} className="px-5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
-                <div className="flex items-center gap-3">
-                  {a.succeeded ? (
-                    <>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        OK
-                      </span>
-                      <span className="text-slate-700 font-medium">
-                        {a.weeks_fetched} weeks / {a.items_stored} items
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-red-100 text-red-800 border border-red-200">
-                        FAIL
-                      </span>
-                      <span className="text-red-700 font-medium">{a.error ?? "???"}</span>
-                    </>
-                  )}
-                </div>
-                <div className="text-slate-400 font-mono text-[11px]">{a.attempted_at}</div>
+        )}
+
+        {/* Last sync status */}
+        <section className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 p-5">
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Last Sync Status</h2>
+          {data.last_success ? (
+            <div className="flex items-center gap-3">
+              <span className="px-2.5 py-1 rounded-md text-xs font-extrabold uppercase tracking-wider bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">
+                Success
+              </span>
+              <span className="text-sm text-slate-200 font-medium">
+                {data.last_success.attempted_at} &mdash; {data.last_success.items_stored} items stored across{" "}
+                {data.last_success.weeks_fetched} weeks
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="px-2.5 py-1 rounded-md text-xs font-extrabold uppercase tracking-wider bg-red-950/80 text-red-300 border border-red-800/60">
+                No successful sync yet
+              </span>
+            </div>
+          )}
+        </section>
+
+        {/* Unique Cached Menu Items & Display Overrides */}
+        <section className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden">
+          <div className="px-5 py-4 bg-slate-850 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider">
+                  Unique Menu Items &amp; Permanent Overrides
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-xs font-extrabold bg-blue-950 text-blue-300 border border-blue-800/80">
+                  {uniqueItems.length} Unique Items
+                </span>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+              <p className="text-xs text-slate-400 mt-1">
+                Edit the display name for any menu item. Changing an item overrides it permanently for every date and week, past and future.
+              </p>
+            </div>
 
-      {/* Cached menu items with override editing */}
-      <section className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
-          <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Cached menu items</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Edit the display text for any item. Overrides persist forever and apply to every week, past and
-            future. Leave the replacement blank to clear.
-          </p>
-        </div>
-
-        {data.weeks.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-slate-400 italic text-center">
-            No menu items cached yet. Run a sync to fetch the next 4 weeks.
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search items..."
+                className="w-full sm:w-48 px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
+              />
+              <button
+                type="button"
+                onClick={() => llmCasingMutation.mutate()}
+                disabled={llmCasingMutation.isPending}
+                className="w-full sm:w-auto px-3.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white border border-blue-500/30 transition-all shadow-sm active:scale-95 disabled:opacity-50 whitespace-nowrap flex items-center justify-center gap-1.5"
+              >
+                {llmCasingMutation.isPending ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span>Running agy AI Casing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🤖</span>
+                    <span>Auto-Case All Items (agy AI)</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {data.weeks.map((weekStart) => (
-              <div key={weekStart} className="p-5">
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Week of {weekStart}
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-slate-400 uppercase tracking-wider">
-                      <th className="text-left font-normal pb-2">Date</th>
-                      <th className="text-left font-normal pb-2">Display text</th>
-                      <th className="text-left font-normal pb-2">Original</th>
-                      <th className="text-left font-normal pb-2">Edit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items
-                      .filter((item) => item.week_start === weekStart)
-                      .map((item) => (
-                        <tr key={`${item.menu_date}-${item.description}`} className="border-t border-slate-50">
-                          <td className="py-1.5 text-slate-500 font-mono text-xs">{item.menu_date}</td>
-                          <td className="py-1.5 text-slate-800 font-medium">
-                            {item.display_description}
-                            {item.display_description !== item.description && (
-                              <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
-                                overridden
+
+          {uniqueItems.length === 0 ? (
+            <div className="px-5 py-8 text-sm text-slate-500 italic text-center">
+              No menu items cached yet. Click "Sync now" above to fetch the school menu.
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="px-5 py-8 text-sm text-slate-500 italic text-center">
+              No menu items match "{searchQuery}".
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] text-slate-400 uppercase tracking-wider border-b border-slate-800 bg-slate-900/80">
+                    <th className="text-left font-semibold py-3 px-5">Active Display Name</th>
+                    <th className="text-left font-semibold py-3 px-5">Original Source Description</th>
+                    <th className="text-left font-semibold py-3 px-5">Permanent Override Edit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredItems.map((item) => {
+                    const isOverridden = item.display_description !== item.description
+                    const currentInput = edits[item.description] ?? item.display_description
+
+                    return (
+                      <tr key={item.description} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3 px-5 font-semibold text-slate-100">
+                          <div className="flex items-center gap-2">
+                            <span>{item.display_description}</span>
+                            {isOverridden ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-amber-950/80 text-amber-300 border border-amber-800/60 shadow-sm">
+                                Overridden
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
+                                Original
                               </span>
                             )}
-                          </td>
-                          <td className="py-1.5 text-slate-400 text-xs">{item.description}</td>
-                          <td className="py-1.5">
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="text"
-                                value={edits[item.description] ?? item.display_description}
-                                onChange={(e) =>
-                                  setEdits((prev) => ({ ...prev, [item.description]: e.target.value }))
-                                }
-                                className="px-2 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-500 w-48"
-                                placeholder="Display text"
-                              />
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-5 text-slate-400 font-mono text-xs">
+                          {item.description}
+                        </td>
+
+                        <td className="py-3 px-5">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={currentInput}
+                              onChange={(e) =>
+                                setEdits((prev) => ({ ...prev, [item.description]: e.target.value }))
+                              }
+                              className="px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-100 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 w-56 font-medium"
+                              placeholder="Display name"
+                            />
+                            <button
+                              onClick={() => handleSave(item.description)}
+                              disabled={overrideMutation.isPending}
+                              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+                            >
+                              Save
+                            </button>
+                            {isOverridden && (
                               <button
-                                onClick={() => handleSave(item.description)}
+                                onClick={() => handleClear(item.description)}
                                 disabled={overrideMutation.isPending}
-                                className="px-2 py-1 text-xs font-medium rounded bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50"
+                                className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all active:scale-95 disabled:opacity-50"
+                                title="Reset to original description"
                               >
-                                Save
+                                Reset
                               </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Sync History */}
+        <section className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden">
+          <div className="px-5 py-3.5 bg-slate-850 border-b border-slate-800">
+            <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Sync Log History</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Most recent first. Sunday cron + 2-hour retries for 48 hours on failure.
+            </p>
           </div>
-        )}
-      </section>
+          {data.attempts.length === 0 ? (
+            <div className="px-5 py-6 text-sm text-slate-500 italic text-center">
+              No sync attempts recorded yet.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-800/60 max-h-80 overflow-y-auto">
+              {data.attempts.map((a, i) => (
+                <div key={i} className="px-5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-800/40 transition-colors">
+                  <div className="flex items-center gap-3">
+                    {a.succeeded ? (
+                      <>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">
+                          OK
+                        </span>
+                        <span className="text-slate-200 font-medium">
+                          {a.weeks_fetched} weeks / {a.items_stored} items
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-red-950/80 text-red-300 border border-red-800/60">
+                          FAIL
+                        </span>
+                        <span className="text-red-400 font-medium">{a.error ?? "Unknown error"}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="text-slate-500 font-mono text-[11px]">{a.attempted_at}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   )
 }

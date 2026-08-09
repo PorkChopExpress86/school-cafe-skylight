@@ -6,7 +6,7 @@ import WeekPage from "./pages/WeekPage"
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 15 * 60 * 1000, // match the backend menu cache TTL
+      staleTime: 15 * 60 * 1000,
       refetchOnWindowFocus: false,
     },
   },
@@ -16,7 +16,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <div className="bg-slate-100 text-slate-900 min-h-screen font-sans">
+        <div className="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased selection:bg-red-500 selection:text-white">
           <Routes>
             <Route path="/" element={<WeekPage />} />
             <Route path="/admin" element={<AdminPage />} />

@@ -102,17 +102,43 @@ def _needs_llm_lookup(text: str) -> bool:
 
 
 def _query_llm_for_case(text: str) -> str | None:
-    """Look up proper case formatting for a complex menu item via the LLM.
+    """Look up proper case formatting for a complex menu item via agy CLI using gemini-3.6-flash-low.
 
-    Returns the LLM-suggested case, or None if the query fails / times out
-    (caller should fall back to simple title case).
-
-    This is a stub: wire to ollama-cloud/minimax-m3 when the model is
-    available, or to a web-search-backed LLM call. The prompt asks for
-    the canonical display capitalization of a food-service menu item.
+    Returns the LLM-suggested case, or None if the query fails or times out
+    (caller falls back to simple title case).
     """
-    # TODO: wire to minimax-m3 LLM endpoint. For now, return None and
-    # let the caller fall back to simple title case.
+    import os
+    import shutil
+    import subprocess
+
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
+
+    agy_bin = shutil.which("agy") or "/home/specter/.local/bin/agy"
+    if not os.path.exists(agy_bin) and not shutil.which("agy"):
+        return None
+
+    prompt = (
+        "Convert this ALL-CAPS school menu item description to Title Case "
+        "food-service display format (return ONLY the converted string, no extra punctuation or quotes):\n"
+        f"{text}"
+    )
+    cmd = [
+        agy_bin,
+        "-p",
+        prompt,
+        "--model",
+        "gemini-3.6-flash-low",
+        "--disable-slash-commands",
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            cleaned = res.stdout.strip().strip('"\'')
+            if cleaned and len(cleaned) < len(text) * 2:
+                return cleaned
+    except Exception:  # noqa: BLE001
+        pass
     return None
 
 

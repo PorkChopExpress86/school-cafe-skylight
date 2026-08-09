@@ -32,15 +32,16 @@ export default function DaySection({
   const dateLabel = dateObj.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric",
   })
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-200">
-        <h2 className="font-semibold text-slate-700">
-          {day.weekday}
-          <span className="text-slate-400 font-normal ml-2">{dateLabel}</span>
+    <section className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden transition-all hover:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between px-5 py-3.5 bg-slate-850 border-b border-slate-800 gap-2">
+        <h2 className="font-bold text-white tracking-wide text-base flex items-center gap-2">
+          <span className="text-red-500 font-extrabold">{day.weekday}</span>
+          <span className="text-slate-400 font-medium text-xs bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+            {dateLabel}
+          </span>
         </h2>
         <SendButton
           menuDate={day.date}
@@ -53,45 +54,61 @@ export default function DaySection({
       </div>
 
       {day.entrees.length === 0 ? (
-        <div className="px-5 py-4 text-slate-400 italic text-sm">No entrees posted.</div>
+        <div className="px-5 py-5 text-slate-500 italic text-sm text-center">No entrees posted for this date.</div>
       ) : (
         <div className="p-5">
           <div
-            className="grid gap-x-3 items-center pb-2 mb-1 border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wide"
+            className="grid gap-x-4 items-center pb-2.5 mb-2 border-b border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider"
             style={gridCols}
           >
             <div>Entree</div>
             {kids.map((kid) => (
-              <div key={kid.id} className="text-center min-w-20 whitespace-nowrap" style={{ color: kid.color }}>
+              <div
+                key={kid.id}
+                className="text-center min-w-20 whitespace-nowrap px-2 py-0.5 rounded font-extrabold text-xs"
+                style={{ color: kid.color }}
+              >
                 {kid.name}
               </div>
             ))}
           </div>
 
-          {day.entrees.map((item) => (
-            <div key={item} className="grid gap-x-3 items-center py-1.5 hover:bg-slate-50 rounded" style={gridCols}>
-              <div className="text-sm text-slate-700">{item}</div>
-              {kids.map((kid) => {
-                const current = selections[kid.id]
-                const selected = current?.selection === item
-                const isSent = selected && Boolean(current?.sent_at)
-                return (
-                  <Cell
-                    key={kid.id}
-                    kid={kid}
-                    menuDate={day.date}
-                    item={item}
-                    selected={selected}
-                    isSent={isSent}
-                    onSelect={onSelect}
-                  />
-                )
-              })}
-            </div>
-          ))}
+          <div className="space-y-1">
+            {day.entrees.map((item) => (
+              <div
+                key={item}
+                className="grid gap-x-4 items-center py-2 px-2 hover:bg-slate-800/60 rounded-lg transition-colors"
+                style={gridCols}
+              >
+                <div className="text-sm font-medium text-slate-200">{item}</div>
+                {kids.map((kid) => {
+                  const current = selections[kid.id]
+                  const selected = current?.selection === item
+                  const isSent = selected && Boolean(current?.sent_at)
+                  return (
+                    <Cell
+                      key={kid.id}
+                      kid={kid}
+                      menuDate={day.date}
+                      item={item}
+                      selected={selected}
+                      isSent={isSent}
+                      onSelect={onSelect}
+                    />
+                  )
+                })}
+              </div>
+            ))}
+          </div>
 
-          <div className="grid gap-x-3 items-center py-1.5 mt-2 pt-2 border-t border-slate-200" style={gridCols}>
-            <div className="text-sm text-emerald-700 font-medium">Make at home</div>
+          <div
+            className="grid gap-x-4 items-center py-2 px-2 mt-3 pt-3 border-t border-slate-800/80 bg-emerald-950/20 rounded-lg"
+            style={gridCols}
+          >
+            <div className="text-sm text-emerald-400 font-semibold flex items-center gap-1.5">
+              <span>🏠</span>
+              <span>Make at home</span>
+            </div>
             {kids.map((kid) => {
               const current = selections[kid.id]
               const selected = current?.selection === MAKE_AT_HOME

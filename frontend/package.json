@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "postbuild": "node -e \"const fs=require('fs'); fs.rmSync('../backend/static', {recursive:true, force:true}); fs.cpSync('dist', '../backend/static', {recursive:true}); console.log('Successfully synced frontend/dist to backend/static');\"",
     "lint": "oxlint",
     "preview": "vite preview"
   },

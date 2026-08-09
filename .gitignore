@@ -1,8 +1,12 @@
-# .env contains real credentials — never commit it.
+# Credentials & secrets — NEVER commit
 .env
+backend/.env
 *.local.env
+*.env
 
-# pyskylight caches the OAuth token at ~/.cache/pyskylight/token.json (0600) — fine, but keep it out of repo just in case.
+# pyskylight token cache
+token.json
+.cache/
 
 # Python
 __pycache__/
@@ -14,15 +18,21 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Node
+# Node & Built Frontend Assets
 node_modules/
 frontend/dist/
+backend/static/
 
-# Tooling state
+# Logs
+*.log
+backend/*.log
+
+# Tooling & MCP state
 .idea/
 .vscode/
+.playwright-mcp/
 
-# Generated output
+# Generated outputs & local SQLite DBs
 menu-*.json
 skylight-out.json
 app.db
@@ -31,4 +41,3 @@ app.db-wal
 backend/app.db
 backend/app.db-shm
 backend/app.db-wal
-.playwright-mcp/

@@ -1,7 +1,7 @@
 // TanStack Query hooks for server state.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { getAdmin, getWeek, select, sendDay, setOverride, triggerSync } from "../api/client"
+import { getAdmin, getWeek, select, sendDay, setOverride, triggerLlmCasing, triggerSync } from "../api/client"
 
 export function useWeek(date?: string) {
   return useQuery({
@@ -57,6 +57,17 @@ export function useSync() {
     mutationFn: triggerSync,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin"] })
+    },
+  })
+}
+
+export function useLlmCasing() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: triggerLlmCasing,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin"] })
+      qc.invalidateQueries({ queryKey: ["week"] })
     },
   })
 }

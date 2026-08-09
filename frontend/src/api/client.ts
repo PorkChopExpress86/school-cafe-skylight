@@ -62,3 +62,7 @@ export function setOverride(
 export function triggerSync(): Promise<SyncResponse> {
   return request<SyncResponse>("/api/admin/sync", { method: "POST" })
 }
+
+export function triggerLlmCasing(): Promise<{ ok: boolean; count: number; updated: number; message: string }> {
+  return request("/api/admin/llm-case-all", { method: "POST" })
+}

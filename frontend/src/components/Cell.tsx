@@ -13,20 +13,20 @@ export default function Cell({ kid, menuDate, item, selected, isSent, onSelect }
   const isMakeHome = item === MAKE_AT_HOME
 
   let className =
-    "inline-flex items-center justify-center w-7 h-7 rounded-full border-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-500 "
+    "inline-flex items-center justify-center w-8 h-8 rounded-full border-2 text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 active:scale-95 shadow-sm "
   if (isSent) {
-    className += "border-slate-400 text-slate-400 bg-transparent cursor-default"
+    className += "border-slate-600 text-slate-400 bg-slate-800 cursor-default opacity-80"
   } else if (selected) {
     className += isMakeHome
-      ? "border-emerald-500 text-white bg-emerald-500"
-      : "text-white"
+      ? "border-emerald-500 text-white bg-emerald-600 shadow-emerald-900/50 shadow-md"
+      : "text-white shadow-md"
   } else {
-    className += "border-slate-200 text-transparent hover:border-slate-400"
+    className += "border-slate-700 text-transparent hover:border-slate-500 hover:text-slate-500 bg-slate-900/40"
   }
 
   const style =
     selected && !isMakeHome && !isSent
-      ? { borderColor: kid.color, backgroundColor: kid.color }
+      ? { borderColor: kid.color, backgroundColor: kid.color, boxShadow: `0 4px 12px ${kid.color}40` }
       : undefined
 
   const label = isMakeHome
@@ -35,7 +35,7 @@ export default function Cell({ kid, menuDate, item, selected, isSent, onSelect }
   const ariaLabel = isSent ? `${label} (sent to Skylight)` : label
 
   return (
-    <div className="text-center min-w-20">
+    <div className="text-center min-w-20 flex justify-center">
       <button
         type="button"
         className={className}
@@ -44,7 +44,7 @@ export default function Cell({ kid, menuDate, item, selected, isSent, onSelect }
         disabled={isSent}
         onClick={() => onSelect(kid.id, menuDate, item)}
       >
-        {isSent ? "\u2713\u2713" : selected ? "\u2713" : "\u00b7"}
+        {isSent ? "✓✓" : selected ? "✓" : "·"}
       </button>
     </div>
   )
