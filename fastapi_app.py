@@ -10,13 +10,18 @@ per kid per day, overwriting any previously-sent sitting for that kid/day.
 
 Reads secrets from the local .env file. SQLite database lives at ./app.db.
 The OAuth token cache (pyskylight) lives at ~/.cache/pyskylight/token.json.
+
+Security note: this app runs on localhost only. No CSRF protection is
+implemented because the attack surface is limited to the local machine.
+If you expose it on a network, add CSRF tokens or put it behind a
+reverse proxy with authentication.
 """
 
 from __future__ import annotations
 
 import os
 import sqlite3
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import date as date_cls, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -40,29 +45,31 @@ DEFAULT_KIDS = [
     {"name": "Kylee", "color": "#EC4899"},
 ]
 
+# Cache of entree descriptions per date, populated on page load so /select
+# doesn't re-fetch the SchoolCafé API on every radio-button click.
+_day_entrees_cache: dict[str, list[str]] = {}
+
 
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
 
 
-def get_conn() -> sqlite3.Connection:
+@contextmanager
+def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
-    conn = get_conn()
-    try:
-        # Drop the old choices table (many-items-per-kid-per-day) so the new
-        # schema (one-selection-per-kid-per-day) is clean. Migrations aren't
-        # worth it for a personal app with a few days of test data.
+    with get_db() as conn:
         conn.executescript(
             """
-            DROP TABLE IF EXISTS choices;
-
             CREATE TABLE IF NOT EXISTS kids (
                 id   INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
@@ -86,8 +93,6 @@ def init_db() -> None:
                 (kid["name"], kid["color"]),
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
 @asynccontextmanager
@@ -100,9 +105,14 @@ async def lifespan(_: FastAPI):
 # Config
 # ---------------------------------------------------------------------------
 
+_env_loaded = False
+
 
 def _load_env() -> None:
-    load_dotenv(APP_DIR / ".env")
+    global _env_loaded
+    if not _env_loaded:
+        load_dotenv(APP_DIR / ".env")
+        _env_loaded = True
 
 
 def school_config() -> SchoolCafeConfig | None:
@@ -171,6 +181,19 @@ def load_selections(
     return out
 
 
+def _compute_day_counts(
+    selections: dict[str, dict[int, dict]], dates: list[str]
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Return (totals, sent) dicts keyed by date_iso."""
+    totals: dict[str, int] = {}
+    sent: dict[str, int] = {}
+    for d in dates:
+        day = selections.get(d, {})
+        totals[d] = len(day)
+        sent[d] = sum(1 for v in day.values() if v["sent_sitting_id"])
+    return totals, sent
+
+
 # ---------------------------------------------------------------------------
 # Skylight write path
 # ---------------------------------------------------------------------------
@@ -197,108 +220,119 @@ def _recipe_summary(kid_name: str, item_text: str) -> str:
 def send_day_to_skylight(menu_date: str) -> dict:
     """For each kid with a selection on this date:
        - if selection == MAKE_AT_HOME: delete any existing sitting, skip creation
-       - else: delete any existing sitting, then create a new one for the new item
+       - else: create a new sitting first, then delete the old one (atomic:
+         the kid always has at least one sitting on Skylight).
        One sitting per kid per day; overwriting.
     """
     cfg = skylight_config()
     if not cfg["frame_id"]:
         return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
 
-    conn = get_conn()
-    rows = conn.execute(
-        """
-        SELECT s.kid_id, s.selection, s.sent_sitting_id, k.name AS kid_name
-        FROM selections s
-        JOIN kids k ON k.id = s.kid_id
-        WHERE s.menu_date = ?
-        ORDER BY k.id
-        """,
-        (menu_date,),
-    ).fetchall()
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.kid_id, s.selection, s.sent_sitting_id, k.name AS kid_name
+            FROM selections s
+            JOIN kids k ON k.id = s.kid_id
+            WHERE s.menu_date = ?
+            ORDER BY k.id
+            """,
+            (menu_date,),
+        ).fetchall()
 
-    if not rows:
-        return {"ok": False, "message": "No selections for that day - nothing sent."}
+        if not rows:
+            return {"ok": False, "message": "No selections for that day - nothing sent."}
 
-    client = _skylight_login()
-    try:
-        lunch_id = _resolve_lunch_category_id(client, cfg["frame_id"])
-        if not lunch_id:
-            return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
+        client = _skylight_login()
+        try:
+            lunch_id = _resolve_lunch_category_id(client, cfg["frame_id"])
+            if not lunch_id:
+                return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
 
-        existing_recipes = {
-            ((r.summary or "").strip().lower()): r
-            for r in client.list_recipes(cfg["frame_id"])
-        }
+            existing_recipes = {
+                ((r.summary or "").strip().lower()): r
+                for r in client.list_recipes(cfg["frame_id"])
+            }
 
-        sent = 0
-        skipped = 0
-        deleted = 0
-        errors: list[str] = []
-        for row in rows:
-            # Always overwrite: if there's a previously-sent sitting, delete it first.
-            if row["sent_sitting_id"]:
-                try:
-                    client.delete_sitting(cfg["frame_id"], row["sent_sitting_id"], menu_date)
-                    deleted += 1
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(f"delete_sitting({row['kid_name']}): {exc}")
-                    # Continue anyway - try to create the new one.
-
-            # "Make at home" means no sitting should exist on Skylight.
-            if row["selection"] == MAKE_AT_HOME:
-                conn.execute(
-                    "UPDATE selections SET sent_at = NULL, sent_sitting_id = NULL "
-                    "WHERE kid_id = ? AND menu_date = ?",
-                    (row["kid_id"], menu_date),
-                )
-                conn.commit()
-                skipped += 1
-                continue
-
-            # Create a new sitting for the selected entree.
-            summary = _recipe_summary(row["kid_name"], row["selection"])
-            recipe = existing_recipes.get(summary.lower())
-            if recipe is None:
-                try:
-                    recipe = client.create_recipe(
-                        cfg["frame_id"],
-                        summary=summary,
-                        description=f"{row['selection']} (from school menu)",
-                        meal_category_id=lunch_id,
-                    )
-                    existing_recipes[summary.lower()] = recipe
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(f"create_recipe({summary!r}): {exc}")
+            sent = 0
+            skipped = 0
+            deleted = 0
+            errors: list[str] = []
+            for row in rows:
+                # "Make at home" — delete the old sitting if it exists, but
+                # only clear the DB after a successful delete.
+                if row["selection"] == MAKE_AT_HOME:
+                    if row["sent_sitting_id"]:
+                        try:
+                            client.delete_sitting(cfg["frame_id"], row["sent_sitting_id"], menu_date)
+                            deleted += 1
+                            conn.execute(
+                                "UPDATE selections SET sent_at = NULL, sent_sitting_id = NULL "
+                                "WHERE kid_id = ? AND menu_date = ?",
+                                (row["kid_id"], menu_date),
+                            )
+                            conn.commit()
+                        except Exception as exc:  # noqa: BLE001
+                            errors.append(f"delete_sitting({row['kid_name']}): {exc}")
+                            # Don't clear DB — Skylight still has the old sitting.
+                            continue
+                    skipped += 1
                     continue
-            try:
-                sitting = client.create_sitting(
-                    cfg["frame_id"],
-                    date=menu_date,
-                    meal_category_id=lunch_id,
-                    meal_recipe_id=str(recipe.id),
-                )
-                conn.execute(
-                    "UPDATE selections SET sent_at = ?, sent_sitting_id = ? "
-                    "WHERE kid_id = ? AND menu_date = ?",
-                    (datetime.now().isoformat(timespec="seconds"), str(sitting.id),
-                     row["kid_id"], menu_date),
-                )
-                conn.commit()
-                sent += 1
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"create_sitting({menu_date}, {summary!r}): {exc}")
 
-        msg = f"Sent {sent} to Skylight for {menu_date}."
-        if deleted:
-            msg += f" Replaced {deleted} existing."
-        if skipped:
-            msg += f" {skipped} make-at-home (no sitting)."
-        if errors:
-            msg += " Errors: " + "; ".join(errors)
-        return {"ok": True, "message": msg, "sent": sent, "deleted": deleted,
-                "skipped": skipped, "errors": errors}
-    finally:
-        client.close()
+                # Create the new sitting first (so the kid always has one).
+                summary = _recipe_summary(row["kid_name"], row["selection"])
+                recipe = existing_recipes.get(summary.lower())
+                if recipe is None:
+                    try:
+                        recipe = client.create_recipe(
+                            cfg["frame_id"],
+                            summary=summary,
+                            description=f"{row['selection']} (from school menu)",
+                            meal_category_id=lunch_id,
+                        )
+                        existing_recipes[summary.lower()] = recipe
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"create_recipe({summary!r}): {exc}")
+                        continue
+                try:
+                    sitting = client.create_sitting(
+                        cfg["frame_id"],
+                        date=menu_date,
+                        meal_category_id=lunch_id,
+                        meal_recipe_id=str(recipe.id),
+                    )
+                    conn.execute(
+                        "UPDATE selections SET sent_at = ?, sent_sitting_id = ? "
+                        "WHERE kid_id = ? AND menu_date = ?",
+                        (datetime.now().isoformat(timespec="seconds"), str(sitting.id),
+                         row["kid_id"], menu_date),
+                    )
+                    conn.commit()
+                    sent += 1
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"create_sitting({menu_date}, {summary!r}): {exc}")
+                    continue
+
+                # Now that the new sitting is in place, delete the old one.
+                if row["sent_sitting_id"]:
+                    try:
+                        client.delete_sitting(cfg["frame_id"], row["sent_sitting_id"], menu_date)
+                        deleted += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"delete_sitting({row['kid_name']}): {exc}")
+                        # Old sitting is orphaned but the new one is in place.
+
+            msg = f"Sent {sent} to Skylight for {menu_date}."
+            if deleted:
+                msg += f" Replaced {deleted} existing."
+            if skipped:
+                msg += f" {skipped} make-at-home (no sitting)."
+            if errors:
+                msg += " Errors: " + "; ".join(errors)
+            return {"ok": True, "message": msg, "sent": sent, "deleted": deleted,
+                    "skipped": skipped, "errors": errors}
+        finally:
+            client.close()
 
 
 # ---------------------------------------------------------------------------
@@ -321,10 +355,18 @@ def index(
         ref = date_cls.today()
 
     week, err = fetch_week(ref)
-    conn = get_conn()
-    kids = conn.execute("SELECT id, name, color FROM kids ORDER BY id").fetchall()
     dates = [d.isoformat() for d in get_week_dates(ref)]
-    selections = load_selections(conn, dates)
+
+    # Populate the entree cache so /select doesn't re-fetch the API.
+    if week:
+        for d in week:
+            _day_entrees_cache[d.date.isoformat()] = [e.description for e in d.entrees]
+
+    with get_db() as conn:
+        kids = conn.execute("SELECT id, name, color FROM kids ORDER BY id").fetchall()
+        selections = load_selections(conn, dates)
+
+    day_totals, day_sent = _compute_day_counts(selections, dates)
 
     return templates.TemplateResponse(request, "week.html", {
         "request": request,
@@ -335,6 +377,8 @@ def index(
         "next_week": (ref + timedelta(days=7)).isoformat(),
         "today": date_cls.today().isoformat(),
         "selections": selections,
+        "day_totals": day_totals,
+        "day_sent": day_sent,
         "school_cfg": school_config(),
         "skylight_cfg": skylight_config(),
         "menu_error": err,
@@ -350,81 +394,85 @@ def select(
     selection: Annotated[str, Form()],
 ):
     """Set one kid's selection for one day. Radio-button semantics:
-       one row per (kid, date). Returns the clicked cell (primary swap)
-       plus out-of-band updates for all the kid's other cells on that
-       day so they clear their selected state.
+       one row per (kid, date). Returns all cells for this kid on this day
+       (the clicked one as primary swap, the rest as OOB) plus an OOB
+       update for the send button so it enables immediately.
     """
-    conn = get_conn()
-    conn.execute(
-        """
-        INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
-        VALUES (?, ?, ?, NULL, NULL)
-        ON CONFLICT(kid_id, menu_date) DO UPDATE
-            SET selection = excluded.selection,
-                sent_at = NULL,
-                sent_sitting_id = NULL
-        """,
-        (kid_id, menu_date, selection),
-    )
-    conn.commit()
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
+            VALUES (?, ?, ?, NULL, NULL)
+            ON CONFLICT(kid_id, menu_date) DO UPDATE
+                SET selection = excluded.selection,
+                    sent_at = NULL,
+                    sent_sitting_id = NULL
+            """,
+            (kid_id, menu_date, selection),
+        )
+        conn.commit()
 
-    kid = conn.execute("SELECT id, name, color FROM kids WHERE id = ?", (kid_id,)).fetchone()
-    current = conn.execute(
-        "SELECT selection, sent_sitting_id FROM selections WHERE kid_id=? AND menu_date=?",
-        (kid_id, menu_date),
-    ).fetchone()
+        kid = conn.execute("SELECT id, name, color FROM kids WHERE id = ?", (kid_id,)).fetchone()
+        current = conn.execute(
+            "SELECT selection, sent_sitting_id FROM selections WHERE kid_id=? AND menu_date=?",
+            (kid_id, menu_date),
+        ).fetchone()
+
+        # Compute updated send-button counts for this day.
+        day_sels = load_selections(conn, [menu_date])
+        day_data = day_sels.get(menu_date, {})
+        total = len(day_data)
+        sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
+
     is_sent = bool(current and current["sent_sitting_id"])
 
-    # Fetch this day's entrees so we can update every cell for this kid.
-    week, _ = fetch_week(datetime.strptime(menu_date, "%Y-%m-%d").date())
-    entrees = []
-    if week:
-        for d in week:
-            if d.date.isoformat() == menu_date:
-                entrees = d.entrees
-                break
+    # Use the cache populated by index(); fall back to API fetch on cache miss.
+    entree_descriptions = _day_entrees_cache.get(menu_date)
+    if entree_descriptions is None:
+        week, _ = fetch_week(datetime.strptime(menu_date, "%Y-%m-%d").date())
+        entree_descriptions = []
+        if week:
+            for d in week:
+                if d.date.isoformat() == menu_date:
+                    entree_descriptions = [e.description for e in d.entrees]
+                    _day_entrees_cache[menu_date] = entree_descriptions
+                    break
 
-    # Build the primary response (the clicked cell) + OOB updates for all
-    # other cells so they reflect the new selection state.
     parts: list[str] = []
+    all_items = entree_descriptions + [MAKE_AT_HOME]
 
-    # Primary: the clicked cell's new state (swaps in place of the clicked button)
-    clicked_selected = current and current["selection"] == selection
-    parts.append(templates.get_template("_cell.html").render(
-        kid=kid, menu_date=menu_date, item=selection,
-        selected=bool(clicked_selected), is_sent=is_sent,
-    ))
-
-    # OOB: every other cell for this kid on this day. Each is wrapped in a div
-    # with the matching container id and hx-swap-oob="true" so htmx replaces
-    # the whole container (div + button) with the fresh state.
-    all_items = [e.description for e in entrees] + [MAKE_AT_HOME]
     for idx, item in enumerate(all_items, 1):
-        if item == selection:
-            continue  # Already handled as primary
-        cell_id = f"cell-{menu_date}-{kid_id}-{idx}" if idx <= len(entrees) else f"cell-{menu_date}-{kid_id}-home"
+        cell_id = f"cell-{menu_date}-{kid_id}-{idx}" if idx <= len(entree_descriptions) else f"cell-{menu_date}-{kid_id}-home"
         is_selected = current and current["selection"] == item
-        cell_html = templates.get_template("_cell.html").render(
+        is_oob = (item != selection)
+        parts.append(templates.get_template("_cell.html").render(
             kid=kid, menu_date=menu_date, item=item,
             selected=bool(is_selected), is_sent=is_sent,
-        )
-        parts.append(f'<div id="{cell_id}" hx-swap-oob="true" class="text-center min-w-20">{cell_html}</div>')
+            cell_id=cell_id, is_oob=is_oob,
+        ))
+
+    # OOB update for the send button so it enables immediately after a selection.
+    send_html = templates.get_template("_send.html").render(
+        menu_date=menu_date, total=total, sent_count=sent_count, result=None,
+    )
+    parts.append(f'<div id="send-{menu_date}" hx-swap-oob="true">{send_html}</div>')
 
     return HTMLResponse("\n".join(parts))
 
 
 @app.post("/send-day", response_class=HTMLResponse)
-async def send_day(request: Request, menu_date: Annotated[str, Form()]):
+def send_day(request: Request, menu_date: Annotated[str, Form()]):
     """Send one day's selections to Skylight. One sitting per kid, overwriting."""
     try:
         result = send_day_to_skylight(menu_date)
     except Exception as exc:  # noqa: BLE001
         result = {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
 
-    conn = get_conn()
-    sels = load_selections(conn, [menu_date])
-    sent_count = sum(1 for k in sels.get(menu_date, {}).values() if k["sent_sitting_id"])
-    total = len(sels.get(menu_date, {}))
+    with get_db() as conn:
+        sels = load_selections(conn, [menu_date])
+    day_data = sels.get(menu_date, {})
+    sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
+    total = len(day_data)
 
     return templates.TemplateResponse(request, "_send.html", {
         "request": request,

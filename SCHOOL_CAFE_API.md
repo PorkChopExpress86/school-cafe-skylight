@@ -8,9 +8,11 @@ This document outlines how to interact with the SchoolCafé Weekly Menu API to f
 
 SchoolCafé exposes a RESTful web API for retrieving weekly menu items for a specific school, serving line, and meal type.
 
-- **Base Endpoint:** `https://webapis.schoolcafe.com/api/CalendarView/GetWeeklyMenuitems`
+- **Base Endpoint:** `https://webapis.schoolcafe.com/api/CalendarView/GetWeeklyMenuitemsByGrade`
 - **HTTP Method:** `GET`
 - **Response Format:** JSON
+
+> **Note:** The plain `GetWeeklyMenuitems` endpoint returns empty buckets for elementary schools in some districts (e.g., Cypress-Fair ISD). The `ByGrade` variant with a `Grade` parameter is required for those schools. The `GetServiceLine` endpoint can be used to discover valid serving-line strings per school.
 
 ---
 
@@ -21,9 +23,11 @@ SchoolCafé exposes a RESTful web API for retrieving weekly menu items for a spe
 | Parameter | Type | Required | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
 | `SchoolId` | `string` / `int` | **Yes** | Unique identifier for the school within SchoolCafé. | `12345` |
-| `ServingDate` | `string` | **Yes** | Any date in `YYYY-MM-DD` format within the desired target week. The API returns the full week containing this date. | `2026-04-26` |
-| `ServingLine` | `string` / `int` | **Yes** | Identifier for the serving line (e.g., Main Line, Express, Line 1). | `1` |
-| `MealType` | `string` / `int` | **Yes** | Meal type identifier (e.g., Lunch, Breakfast). | `Lunch` or `1` |
+| `ServingDate` | `string` | **Yes** | Any date in `MM/DD/YYYY` format within the desired target week. The API returns the 5 days starting at this date. Pass the Monday of the target week to align response keys with a Mon-Fri view. | `08/12/2026` |
+| `ServingLine` | `string` | **Yes** | Identifier for the serving line (e.g., `TD Lunch Elementary`). Use `GET /api/GetServiceLine` to discover valid values per school. | `TD Lunch Elementary` |
+| `MealType` | `string` | **Yes** | Meal type identifier (e.g., Lunch, Breakfast). | `Lunch` |
+| `Grade` | `string` | **Yes** | Grade code (e.g., `PK`, `KG`, `01`-`05` for elementary). Required by the `ByGrade` endpoint. | `02` |
+| `PersonId` | `string` | No | Set to `null` for anonymous queries. | `null` |
 
 ### Headers
 

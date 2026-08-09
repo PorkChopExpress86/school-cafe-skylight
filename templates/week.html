@@ -40,7 +40,7 @@
           <span class="text-slate-400 font-normal ml-2">{{ day.date.strftime('%b %d, %Y') }}</span>
         </h2>
         <div id="send-{{ day_iso }}">
-          {% with menu_date=day_iso, total=0, sent_count=0, result=None %}
+          {% with menu_date=day_iso, total=day_totals.get(day_iso, 0), sent_count=day_sent.get(day_iso, 0), result=None %}
             {% include "_send.html" %}
           {% endwith %}
         </div>
@@ -66,11 +66,10 @@
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
           {% set selected = current and current.selection == item_text %}
           {% set is_sent = current and current.sent_sitting_id %}
-          <div class="text-center min-w-20" id="cell-{{ day_iso }}-{{ kid.id }}-{{ entree_idx }}">
-            {% with menu_date=day_iso, kid=kid, item=item_text, selected=selected, is_sent=is_sent %}
-              {% include "_cell.html" %}
-            {% endwith %}
-          </div>
+          {% set cell_id = "cell-" ~ day_iso ~ "-" ~ kid.id ~ "-" ~ entree_idx %}
+          {% with menu_date=day_iso, kid=kid, item=item_text, selected=selected, is_sent=is_sent, cell_id=cell_id, is_oob=false %}
+            {% include "_cell.html" %}
+          {% endwith %}
           {% endfor %}
         </div>
         {% endfor %}
@@ -81,11 +80,10 @@
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
           {% set selected = current and current.selection == MAKE_AT_HOME %}
           {% set is_sent = current and current.sent_sitting_id %}
-          <div class="text-center min-w-20" id="cell-{{ day_iso }}-{{ kid.id }}-home">
-            {% with menu_date=day_iso, kid=kid, item=MAKE_AT_HOME, selected=selected, is_sent=is_sent %}
-              {% include "_cell.html" %}
-            {% endwith %}
-          </div>
+          {% set cell_id = "cell-" ~ day_iso ~ "-" ~ kid.id ~ "-home" %}
+          {% with menu_date=day_iso, kid=kid, item=MAKE_AT_HOME, selected=selected, is_sent=is_sent, cell_id=cell_id, is_oob=false %}
+            {% include "_cell.html" %}
+          {% endwith %}
           {% endfor %}
         </div>
       </div>
