@@ -94,7 +94,7 @@ Open your browser and navigate to:
 To automatically sync the next 4 weeks of menus every Sunday at 3:00 AM, add this entry to your user crontab (`crontab -e`):
 
 ```cron
-0 3 * * 0 podman exec school-cafe python menu_sync.py >> /home/specter/dev/school-cafe-skylight/backend/sync.log 2>&1
+0 3 * * 0 podman exec school-cafe python menu_sync.py >> $HOME/dev/school-cafe-skylight/backend/sync.log 2>&1
 ```
 
 ---

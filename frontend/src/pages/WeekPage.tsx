@@ -72,9 +72,9 @@ export default function WeekPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-bold tracking-widest text-red-500 uppercase px-2 py-0.5 bg-red-950/60 border border-red-800/40 rounded">
-                  Post Elementary Patriots
+                  Elementary School
                 </span>
-                <span className="text-xs text-slate-400 font-mono">CFISD</span>
+                <span className="text-xs text-slate-400 font-mono">School Menu</span>
               </div>
               <h1 className="text-xl font-extrabold text-white tracking-tight mt-0.5">
                 School Lunch Planner
@@ -184,7 +184,7 @@ export default function WeekPage() {
         <footer className="mt-8 pt-6 border-t border-slate-800 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-            <span>Post Elementary School Lunch Planner &bull; Go Patriots! ⭐️</span>
+            <span>School Lunch Planner ⭐️</span>
           </div>
           <div className="flex items-center gap-4">
             <details className="relative">

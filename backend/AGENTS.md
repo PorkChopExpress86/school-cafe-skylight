@@ -33,7 +33,7 @@ school-cafe-skylight/
 
 - **Container is the runtime.** Local Python is for tests only; the app runs in Podman with bind-mounted source.
 - **Container restarts itself** via `systemctl --user start school-cafe.service` (see `~/.config/systemd/user/school-cafe.service`). Auto-restarts on crash/reboot.
-- **Automated Sunday 3:00 AM Sync:** Scheduled via crontab (`0 3 * * 0 podman exec school-cafe python menu_sync.py >> /home/specter/dev/school-cafe-skylight/backend/sync.log 2>&1`) and in-container background scheduler (`_sunday_sync_scheduler` in `fastapi_app.py`). Syncs 4 weeks of menus every Sunday at 3:00 AM.
+- **Automated Sunday 3:00 AM Sync:** Scheduled via crontab (`0 3 * * 0 podman exec school-cafe python menu_sync.py >> $HOME/dev/school-cafe-skylight/backend/sync.log 2>&1`) and in-container background scheduler (`_sunday_sync_scheduler` in `fastapi_app.py`). Syncs 4 weeks of menus every Sunday at 3:00 AM.
 - **AI Case Formatting:** Initial menu items pass through `_query_llm_for_case` via `agy -p ... --model gemini-3.6-flash-low`. On-demand bulk recasing available via Admin button (`POST /api/admin/llm-case-all`).
 - **Frontend build automation:** `npm run build` runs a `postbuild` hook copying `frontend/dist` to `backend/static/`.
 - **Image:** `localhost/school-cafe-skylight:latest`. Rebuild after `Containerfile` or `requirements*.txt` changes.

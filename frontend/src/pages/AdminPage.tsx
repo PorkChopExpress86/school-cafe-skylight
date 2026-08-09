@@ -83,7 +83,7 @@ export default function AdminPage() {
             </div>
             <div>
               <h1 className="text-lg font-extrabold text-white tracking-tight">Menu Sync Admin</h1>
-              <p className="text-xs text-slate-400">Post Elementary School • CFISD</p>
+              <p className="text-xs text-slate-400">Elementary School • School Menu</p>
             </div>
           </div>
 

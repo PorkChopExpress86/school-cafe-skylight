@@ -114,7 +114,7 @@ def _query_llm_for_case(text: str) -> str | None:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return None
 
-    agy_bin = shutil.which("agy") or "/home/specter/.local/bin/agy"
+    agy_bin = shutil.which("agy") or os.path.expanduser("~/.local/bin/agy")
     if not os.path.exists(agy_bin) and not shutil.which("agy"):
         return None
 

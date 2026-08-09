@@ -375,7 +375,7 @@ def _week_payload(ref: date_cls) -> dict:
 # App & Middleware
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="School Lunch - Parker & Kylee", lifespan=lifespan)
+app = FastAPI(title="School Lunch Planner", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
