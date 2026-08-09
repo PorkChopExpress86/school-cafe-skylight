@@ -16,28 +16,35 @@ import argparse
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-BASE_URL = "https://webapis.schoolcafe.com/api/CalendarView/GetWeeklyMenuitems"
+BASE_URL = (
+    "https://webapis.schoolcafe.com/api/CalendarView/GetWeeklyMenuitemsByGrade"
+)
 
 
 @dataclass(frozen=True)
 class SchoolCafeConfig:
     school_id: str
-    serving_line: str = "1"
+    serving_line: str = "TD Lunch Elementary"
     meal_type: str = "Lunch"
+    grade: str = "02"
 
 
 def build_url(config: SchoolCafeConfig, target_date: date) -> str:
+    # SchoolCafé expects MM/DD/YYYY for date params on this endpoint.
     return (
         f"{BASE_URL}"
         f"?SchoolId={config.school_id}"
-        f"&ServingDate={target_date.strftime('%Y-%m-%d')}"
-        f"&ServingLine={config.serving_line}"
+        f"&ServingDate={target_date.strftime('%m/%d/%Y')}"
+        f"&ServingLine={urllib.parse.quote(config.serving_line)}"
         f"&MealType={config.meal_type}"
+        f"&Grade={config.grade}"
+        f"&PersonId=null"
     )
 
 
@@ -147,13 +154,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--school-id", required=True, help="SchoolCafé school ID")
     parser.add_argument(
         "--serving-line",
-        default="1",
-        help="Serving line identifier (default: 1)",
+        default="TD Lunch Elementary",
+        help="Serving line identifier (default: 'TD Lunch Elementary' for CFISD elementary)",
     )
     parser.add_argument(
         "--meal-type",
         default="Lunch",
         help="Meal type, e.g. Lunch or Breakfast (default: Lunch)",
+    )
+    parser.add_argument(
+        "--grade",
+        default="02",
+        help="Grade code (default: '02'). CFISD uses PK, KG, 01-05.",
     )
     parser.add_argument(
         "--date",
@@ -182,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         school_id=args.school_id,
         serving_line=args.serving_line,
         meal_type=args.meal_type,
+        grade=args.grade,
     )
 
     try:

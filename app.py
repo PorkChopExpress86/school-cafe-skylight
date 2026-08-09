@@ -99,8 +99,10 @@ def load_school_config() -> SchoolCafeConfig | None:
         return None
     return SchoolCafeConfig(
         school_id=school_id,
-        serving_line=os.environ.get("SCHOOL_SERVING_LINE", "1").strip() or "1",
+        serving_line=os.environ.get("SCHOOL_SERVING_LINE", "TD Lunch Elementary").strip()
+        or "TD Lunch Elementary",
         meal_type=os.environ.get("SCHOOL_MEAL_TYPE", "Lunch").strip() or "Lunch",
+        grade=os.environ.get("SCHOOL_GRADE", "02").strip() or "02",
     )
 
 

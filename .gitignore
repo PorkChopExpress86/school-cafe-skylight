@@ -22,3 +22,4 @@ venv/
 menu-*.json
 skylight-out.json
 app.db
+.playwright-mcp/
