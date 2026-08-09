@@ -1,7 +1,18 @@
-# Containerfile for the FastAPI + HTMX school-lunch planner.
-# Single user-mode image; runs as UID 1000; expects /app/.env and a
-# writable /app mount for app.db (both bind-mounted at run time).
+# Containerfile for the FastAPI + React school-lunch planner.
+# Multi-stage: stage 1 builds the React SPA, stage 2 runs FastAPI and
+# serves the built SPA. Single user-mode image; runs as UID 1000;
+# expects /app/.env and a writable /app mount for app.db (both
+# bind-mounted at run time).
 
+# --- Stage 1: build the React frontend -------------------------------
+FROM docker.io/library/node:22-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: Python API + built SPA ---------------------------------
 FROM docker.io/library/python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -34,13 +45,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first so the layer caches across code changes.
-COPY requirements.txt /app/requirements.txt
+COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy the application code.
-COPY fastapi_app.py school_menu.py skylight_menu.py /app/
-COPY templates /app/templates
-COPY static /app/static
+COPY backend/fastapi_app.py backend/school_menu.py backend/skylight_menu.py backend/menu_sync.py /app/
+COPY --from=frontend /frontend/dist /app/static
 
 # Give the app user ownership of the workdir so it can create app.db on
 # first startup and so any future bind-mount at /app lands in writable

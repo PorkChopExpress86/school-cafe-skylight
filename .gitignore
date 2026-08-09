@@ -14,6 +14,10 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# Node
+node_modules/
+frontend/dist/
+
 # Tooling state
 .idea/
 .vscode/
@@ -24,4 +28,7 @@ skylight-out.json
 app.db
 app.db-shm
 app.db-wal
+backend/app.db
+backend/app.db-shm
+backend/app.db-wal
 .playwright-mcp/

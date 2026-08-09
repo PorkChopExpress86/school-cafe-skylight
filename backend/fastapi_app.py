@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FastAPI + HTMX web app for picking school meals per kid and sending to Skylight.
+"""FastAPI JSON API for picking school meals per kid and sending to Skylight.
 
 Run:
     uvicorn fastapi_app:app --reload --port 8000
@@ -9,6 +9,9 @@ school menu, or "make at home". Sending a day to Skylight wipes every sitting
 on that date belonging to one of our kids (matched by recipe-title prefix)
 and recreates them from the current selections, leaving the rest of the
 calendar untouched.
+
+The frontend is a React SPA (in ../frontend) that consumes the /api/*
+endpoints below. This module returns JSON only - no templates, no HTML.
 
 Reads secrets from the local .env file. SQLite database lives at ./app.db.
 The OAuth token cache (pyskylight) lives at ~/.cache/pyskylight/token.json.
@@ -33,10 +36,9 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from menu_sync import _init_menu_tables  # noqa: E402  shared with menu_sync.py
 from school_menu import SchoolCafeConfig, get_week_dates, get_weekly_items
@@ -252,34 +254,21 @@ def skylight_config() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# App + templates
+# App
 # ---------------------------------------------------------------------------
 
 
 app = FastAPI(title="School Lunch - Parker & Kylee", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
-templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
-templates.env.globals["MAKE_AT_HOME"] = MAKE_AT_HOME
 
-
-def _format_history_time(value: str) -> str:
-    """Render a stored ISO timestamp for the history panel.
-
-    Rows written before timestamps were stored as ISO already hold a
-    display string, so fall back to showing those verbatim.
-    """
-    try:
-        return datetime.fromisoformat(value).strftime("%b %d, %I:%M %p")
-    except (TypeError, ValueError):
-        return value
-
-
-def _format_selection(value: str) -> str:
-    return "Make at home" if value == MAKE_AT_HOME else value
-
-
-templates.env.filters["history_time"] = _format_history_time
-templates.env.filters["selection_label"] = _format_selection
+# Dev-only CORS: the Vite dev server (http://localhost:5173) proxies /api
+# to this app, so in practice requests are same-origin. The middleware is
+# kept permissive-but-loopback-scoped for direct-from-browser dev use.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -732,24 +721,28 @@ def send_day_to_skylight(menu_date: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# ---------------------------------------------------------------------------
+# Routes (JSON API)
 # ---------------------------------------------------------------------------
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(
-    request: Request,
-    date: Annotated[str | None, Query()] = None,
-    flash: Annotated[str | None, Query()] = None,
-):
-    if date:
-        try:
-            ref = datetime.strptime(date, "%Y-%m-%d").date()
-        except ValueError:
-            ref = date_cls.today()
-    else:
-        ref = date_cls.today()
+class SelectRequest(BaseModel):
+    kid_id: int
+    menu_date: str
+    selection: str
 
+
+class SendDayRequest(BaseModel):
+    menu_date: str
+
+
+class OverrideRequest(BaseModel):
+    original: str
+    replacement: str
+
+
+def _week_payload(ref: date_cls) -> dict:
+    """Assemble the full week-view payload shared by /api/week."""
     week, err = fetch_week(ref)
     dates = [d.isoformat() for d in get_week_dates(ref)]
 
@@ -760,46 +753,58 @@ def index(
 
     day_totals, day_sent = _compute_day_counts(selections, dates)
 
-    return templates.TemplateResponse(request, "week.html", {
-        "request": request,
-        "week": week,
-        "kids": kids,
-        "ref": ref,
-        "prev_week": (ref - timedelta(days=7)).isoformat(),
-        "next_week": (ref + timedelta(days=7)).isoformat(),
-        "today": date_cls.today().isoformat(),
+    return {
+        "week": [
+            {
+                "date": d.date.isoformat(),
+                "weekday": d.date.strftime("%A"),
+                "entrees": [e.description for e in d.entrees],
+            }
+            for d in (week or [])
+        ],
+        "kids": [dict(k) for k in kids],
         "selections": selections,
         "day_totals": day_totals,
         "day_sent": day_sent,
         "history": history,
+        "ref": ref.isoformat(),
+        "prev_week": (ref - timedelta(days=7)).isoformat(),
+        "next_week": (ref + timedelta(days=7)).isoformat(),
+        "today": date_cls.today().isoformat(),
         "school_cfg": school_config(),
         "skylight_cfg": skylight_config(),
         "menu_error": err,
-        "flash": flash,
-    })
+    }
 
 
-@app.post("/select", response_class=HTMLResponse)
-def select(
-    request: Request,
-    kid_id: Annotated[int, Form()],
-    menu_date: Annotated[str, Form()],
-    selection: Annotated[str, Form()],
-):
+@app.get("/api/week")
+def api_week(date: Annotated[str | None, Query()] = None) -> dict:
+    """Full week-view payload: menu, kids, selections, counts, history."""
+    if date:
+        try:
+            ref = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            ref = date_cls.today()
+    else:
+        ref = date_cls.today()
+    return _week_payload(ref)
+
+
+@app.post("/api/select")
+def api_select(req: SelectRequest) -> dict:
     """Set one kid's selection for one day. Radio-button semantics:
-       one row per (kid, date). Returns all cells for this kid on this day
-       (the clicked one as primary swap, the rest as OOB) plus an OOB
-       update for the send button and selection history.
+       one row per (kid, date). Returns the updated selection state,
+       day counts, and history so the SPA can refresh in place.
     """
-    parsed_date = _parse_menu_date(menu_date)
-    selection = _sanitize_selection(selection)
+    _parse_menu_date(req.menu_date)  # raises 400 on malformed dates
+    selection = _sanitize_selection(req.selection)
 
     with get_db() as conn:
         kid = conn.execute(
-            "SELECT id, name, color, prefix FROM kids WHERE id = ?", (kid_id,)
+            "SELECT id, name, color, prefix FROM kids WHERE id = ?", (req.kid_id,)
         ).fetchone()
         if kid is None:
-            raise HTTPException(status_code=404, detail=f"Unknown kid_id {kid_id}.")
+            raise HTTPException(status_code=404, detail=f"Unknown kid_id {req.kid_id}.")
 
         conn.execute(
             """
@@ -810,96 +815,49 @@ def select(
                     sent_at = NULL,
                     sent_sitting_id = NULL
             """,
-            (kid_id, menu_date, selection),
+            (req.kid_id, req.menu_date, selection),
         )
         conn.commit()
 
         current = conn.execute(
             "SELECT selection, sent_at FROM selections WHERE kid_id=? AND menu_date=?",
-            (kid_id, menu_date),
+            (req.kid_id, req.menu_date),
         ).fetchone()
 
-        log_history(conn, kid["name"], menu_date, selection, "Selected")
+        log_history(conn, kid["name"], req.menu_date, selection, "Selected")
         conn.commit()
 
         # Compute updated send-button counts for this day.
-        day_sels = load_selections(conn, [menu_date])
-        day_data = day_sels.get(menu_date, {})
+        day_sels = load_selections(conn, [req.menu_date])
+        day_data = day_sels.get(req.menu_date, {})
         total = len(day_data)
         sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
         history = fetch_recent_history(conn)
 
-    has_sent = bool(current and current["sent_at"])
-
-    # Normally a cache hit from the page load that rendered these cells;
-    # falls back to a live fetch (and [] if that fails) after a restart.
-    entree_descriptions = entrees_for_date(menu_date, parsed_date)
-
-    cell_template = templates.get_template("_cell.html")
-
-    def render_cell(item: str, cell_id: str, is_oob: bool) -> str:
-        is_selected = bool(current and current["selection"] == item)
-        return cell_template.render(
-            kid=kid, menu_date=menu_date, item=item,
-            selected=is_selected,
-            is_sent=(is_selected and has_sent),
-            cell_id=cell_id, is_oob=is_oob,
-        )
-
-    all_items = entree_descriptions + [MAKE_AT_HOME]
-
-    # htmx swaps the single non-OOB fragment into the clicked cell. If the
-    # posted selection isn't in the entree list this process knows about - a
-    # stale page, or a menu fetch that failed after a restart - every fragment
-    # below would be OOB, htmx would swap an empty body into the clicked cell,
-    # and the cell would disappear. Render that cell explicitly instead, using
-    # the id htmx tells us it is targeting.
-    fallback_id: str | None = None
-    if selection not in all_items:
-        fallback_id = request.headers.get("HX-Target") or f"cell-{menu_date}-{kid_id}-home"
-
-    parts: list[str] = []
-    for idx, item in enumerate(all_items, 1):
-        cell_id = (
-            f"cell-{menu_date}-{kid_id}-{idx}"
-            if idx <= len(entree_descriptions)
-            else f"cell-{menu_date}-{kid_id}-home"
-        )
-        if cell_id == fallback_id:
-            continue  # emitted below as the primary swap instead
-        parts.append(render_cell(item, cell_id, is_oob=(item != selection)))
-
-    if fallback_id is not None:
-        parts.append(render_cell(selection, fallback_id, is_oob=False))
-
-    # OOB update for the send button so it enables immediately after a selection.
-    parts.append(templates.get_template("_send.html").render(
-        menu_date=menu_date, total=total, sent_count=sent_count,
-        result=None, is_oob=True,
-    ))
-
-    # OOB update for the history panel.
-    parts.append(templates.get_template("_history.html").render(history=history, is_oob=True))
-
-    return HTMLResponse("\n".join(parts))
+    return {
+        "kid_id": req.kid_id,
+        "menu_date": req.menu_date,
+        "selection": selection,
+        "sent_at": current["sent_at"] if current else None,
+        "day_totals": {req.menu_date: total},
+        "day_sent": {req.menu_date: sent_count},
+        "history": history,
+    }
 
 
-@app.post("/send-day", response_class=HTMLResponse)
-def send_day(request: Request, menu_date: Annotated[str, Form()]):
+@app.post("/api/send-day")
+def api_send_day(req: SendDayRequest) -> dict:
     """Send one day's selections to Skylight. One sitting per kid, overwriting."""
-    parsed_date = _parse_menu_date(menu_date)  # raises 400 on malformed dates
+    _parse_menu_date(req.menu_date)  # raises 400 on malformed dates
 
     try:
-        result = send_day_to_skylight(menu_date)
+        result = send_day_to_skylight(req.menu_date)
     except Exception as exc:  # noqa: BLE001
         result = {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
 
     with get_db() as conn:
-        kids = conn.execute(
-            "SELECT id, name, color, prefix FROM kids ORDER BY id"
-        ).fetchall()
-        sels = load_selections(conn, [menu_date])
-        day_data = sels.get(menu_date, {})
+        sels = load_selections(conn, [req.menu_date])
+        day_data = sels.get(req.menu_date, {})
         sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
         total = len(day_data)
         # Log per kid from what actually happened, not from the overall "ok"
@@ -907,66 +865,19 @@ def send_day(request: Request, menu_date: Annotated[str, Form()]):
         # and a skipped (make-at-home) kid never had a sitting created.
         for r in result.get("results", []):
             if r["status"] == "sent":
-                log_history(conn, r["kid_name"], menu_date, r["selection"], "Sent to Skylight")
+                log_history(conn, r["kid_name"], req.menu_date, r["selection"], "Sent to Skylight")
         conn.commit()
         history = fetch_recent_history(conn)
 
-    send_html = templates.get_template("_send.html").render({
-        "menu_date": menu_date,
-        "total": total,
-        "sent_count": sent_count,
-        "result": result,
-        "is_oob": False,
-    })
-
-    # OOB update every cell for this day so the page reflects the sent
-    # state (double checkmark + greyed out) without a full page reload.
-    entree_descriptions = entrees_for_date(menu_date, parsed_date)
-    cell_template = templates.get_template("_cell.html")
-    parts: list[str] = [send_html]
-
-    for kid in kids:
-        current = day_data.get(kid["id"])
-        has_sent = bool(current and current["sent_at"])
-        selected_item = current["selection"] if current else None
-
-        for idx, item in enumerate(entree_descriptions, 1):
-            cell_id = f"cell-{menu_date}-{kid['id']}-{idx}"
-            is_selected = selected_item == item
-            parts.append(cell_template.render(
-                kid=kid, menu_date=menu_date, item=item,
-                selected=is_selected,
-                is_sent=(is_selected and has_sent),
-                cell_id=cell_id, is_oob=True,
-            ))
-
-        # The make-at-home cell.
-        cell_id = f"cell-{menu_date}-{kid['id']}-home"
-        is_selected = selected_item == MAKE_AT_HOME
-        parts.append(cell_template.render(
-            kid=kid, menu_date=menu_date, item=MAKE_AT_HOME,
-            selected=is_selected,
-            is_sent=(is_selected and has_sent),
-            cell_id=cell_id, is_oob=True,
-        ))
-
-    history_html = templates.get_template("_history.html").render(history=history, is_oob=True)
-    parts.append(history_html)
-    return HTMLResponse("\n".join(parts))
+    result["day_totals"] = {req.menu_date: total}
+    result["day_sent"] = {req.menu_date: sent_count}
+    result["history"] = history
+    return result
 
 
-@app.get("/admin", response_class=HTMLResponse)
-def admin(request: Request):
-    """Admin page: show cached menu items + sync history.
-
-    Reads the menu cache and the sync log directly from the SQLite DB
-    so the page never makes a network call. The cache is populated by
-    the Sunday cron task; if it's stale or empty, the cron will catch
-    up on the next run.
-
-    Menu items are rendered with any user overrides applied, so the
-    page shows exactly what the user wants displayed.
-    """
+@app.get("/api/admin")
+def api_admin() -> dict:
+    """Admin payload: cached menu items, overrides, sync history."""
     from menu_sync import (
         apply_overrides_to_items,
         fetch_all_overrides,
@@ -979,27 +890,17 @@ def admin(request: Request):
     overrides = fetch_all_overrides(DB_PATH)
     items = apply_overrides_to_items(items, overrides)
     attempts = fetch_recent_sync_attempts(DB_PATH, limit=50)
-    return templates.TemplateResponse(
-        request,
-        "admin.html",
-        {
-            "weeks": weeks,
-            "items": items,
-            "overrides": overrides,
-            "attempts": attempts,
-            "last_success": next(
-                (a for a in attempts if a["succeeded"]), None
-            ),
-        },
-    )
+    return {
+        "weeks": weeks,
+        "items": items,
+        "overrides": overrides,
+        "attempts": attempts,
+        "last_success": next((a for a in attempts if a["succeeded"]), None),
+    }
 
 
-@app.post("/admin/override", response_class=HTMLResponse)
-def admin_override(
-    request: Request,
-    original: Annotated[str, Form()],
-    replacement: Annotated[str, Form()],
-):
+@app.post("/api/admin/override")
+def api_admin_override(req: OverrideRequest) -> dict:
     """Set or clear a menu-item display override.
 
     ``replacement`` is the new display text for ``original``. An empty
@@ -1007,35 +908,62 @@ def admin_override(
     keyed by the original description, so it applies to every occurrence
     of that item in every week, past and future, until cleared.
     """
-    from menu_sync import set_menu_override
+    from menu_sync import fetch_all_overrides, set_menu_override
 
-    set_menu_override(original, replacement, DB_PATH)
-    return admin(request)
+    set_menu_override(req.original, req.replacement, DB_PATH)
+    return {"ok": True, "overrides": fetch_all_overrides(DB_PATH)}
 
 
-@app.post("/admin/sync", response_class=HTMLResponse)
-def admin_sync(request: Request):
-    """Trigger an immediate sync from the admin page (no waiting for Sunday).
+@app.post("/api/admin/sync")
+def api_admin_sync() -> dict:
+    """Trigger an immediate sync (no waiting for Sunday).
 
-    Runs synchronously and returns the admin page with the new attempt
-    at the top of the log. Useful for confirming the weekly cron is
-    healthy after a config change.
+    Runs synchronously. The attempt is logged in menu_sync_log; the
+    admin page shows it on the next fetch.
     """
     from menu_sync import _load_env_config
     from menu_sync import sync_menu as _sync_menu
 
     config = _load_env_config()
-    if config is not None:
-        try:
-            _sync_menu(config)
-        except Exception:  # noqa: BLE001
-            # The failure is already logged in menu_sync_log;
-            # the admin page will show it.
-            pass
+    if config is None:
+        return {"ok": False, "message": "SCHOOL_ID not set in .env"}
+    try:
+        result = _sync_menu(config)
+        return {
+            "ok": True,
+            "message": (
+                f"Synced {result.items_stored} items across "
+                f"{result.weeks_fetched} weeks."
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
 
-    return admin(request)
+
+@app.get("/api/health")
+def api_health() -> dict:
+    return {"status": "ok"}
 
 
-@app.get("/health", response_class=HTMLResponse)
-def health():
-    return HTMLResponse("ok")
+# Serve the built React SPA (frontend/dist) in production. Registered LAST
+# so the /api/* routes above take precedence. In dev, the Vite dev server
+# serves the SPA and proxies /api here.
+_STATIC_DIR = APP_DIR / "static"
+if _STATIC_DIR.is_dir():
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_STATIC_DIR / "assets")),
+        name="assets",
+    )
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str):
+        """Serve index.html for any non-API path so client-side routes
+        (e.g. /admin) work without a server-side route."""
+        candidate = _STATIC_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_STATIC_DIR / "index.html")

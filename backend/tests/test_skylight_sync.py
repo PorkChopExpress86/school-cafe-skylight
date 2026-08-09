@@ -1,4 +1,4 @@
-"""Tests for the Skylight write path (send_day_to_skylight and /send-day)."""
+"""Tests for the Skylight write path (send_day_to_skylight and /api/send-day)."""
 
 from __future__ import annotations
 
@@ -8,10 +8,15 @@ from conftest import ENTREES, MENU_DATE, FakeObj, failing_db
 
 def pick(client, kid_id, selection, menu_date=MENU_DATE):
     response = client.post(
-        "/select", data={"kid_id": kid_id, "menu_date": menu_date, "selection": selection}
+        "/api/select",
+        json={"kid_id": kid_id, "menu_date": menu_date, "selection": selection},
     )
     assert response.status_code == 200
     return response
+
+
+def send_day(client, menu_date=MENU_DATE):
+    return client.post("/api/send-day", json={"menu_date": menu_date})
 
 
 class TestRecipeNaming:
@@ -55,8 +60,9 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Parker"], ENTREES[0])
         pick(client, kid_ids["Kylee"], ENTREES[1])
 
-        result = client.post("/send-day", data={"menu_date": MENU_DATE})
+        result = send_day(client)
         assert result.status_code == 200
+        assert result.json()["ok"] is True
         assert skylight.summaries() == ["K- Hot Dog", "P- Cheese Pizza"]
 
     def test_leaves_a_non_prefixed_lunch_alone(self, app_module, client, skylight, kid_ids):
@@ -221,7 +227,7 @@ class TestFailureReporting:
         pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
         pick(client, kid_ids["Kylee"], ENTREES[1])
 
-        client.post("/send-day", data={"menu_date": MENU_DATE})
+        send_day(client)
 
         with app_module.get_db() as conn:
             sent_rows = conn.execute(
@@ -233,7 +239,7 @@ class TestFailureReporting:
     def test_history_records_a_successful_send(self, app_module, client, skylight, kid_ids):
         pick(client, kid_ids["Kylee"], ENTREES[1])
 
-        client.post("/send-day", data={"menu_date": MENU_DATE})
+        send_day(client)
 
         with app_module.get_db() as conn:
             rows = conn.execute(
@@ -241,34 +247,34 @@ class TestFailureReporting:
             ).fetchall()
         assert [r["kid_name"] for r in rows] == ["Kylee"]
 
-    def test_partial_failure_renders_as_a_warning(self, app_module, client, skylight, kid_ids):
+    def test_partial_failure_returns_ok_false(self, app_module, client, skylight, kid_ids):
         skylight.fail_create_recipe_for.add("P- Cheese Pizza")
         pick(client, kid_ids["Parker"], ENTREES[0])
 
-        response = client.post("/send-day", data={"menu_date": MENU_DATE})
+        response = send_day(client)
 
-        assert "text-amber-600" in response.text
-        assert "text-emerald-600" not in response.text
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is False
+        assert data["errors"]
 
-    def test_success_renders_as_success(self, client, skylight, kid_ids):
+    def test_success_returns_ok_true(self, client, skylight, kid_ids):
         pick(client, kid_ids["Parker"], ENTREES[0])
-        response = client.post("/send-day", data={"menu_date": MENU_DATE})
-        assert "text-emerald-600" in response.text
+        response = send_day(client)
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
 
-    def test_send_returns_oob_cells_reflecting_sent_state(self, client, skylight, kid_ids):
-        """After sending, the response must include OOB cell updates that
-        show the sent state (double checkmark) so the page matches the DB
-        without a full reload."""
+    def test_send_returns_updated_counts_and_history(self, client, skylight, kid_ids):
+        """After sending, the response includes day counts and history so
+        the SPA can refresh without a second round-trip."""
         kid = kid_ids["Parker"]
         pick(client, kid, ENTREES[0])
-        response = client.post("/send-day", data={"menu_date": MENU_DATE})
-
-        # The selected entree's cell should be OOB-swapped with sent state.
-        cell_id = f"cell-{MENU_DATE}-{kid}-1"
-        assert f'id="{cell_id}"' in response.text
-        assert "hx-swap-oob" in response.text
-        # Double checkmark indicates sent state.
-        assert "&#10003;&#10003;" in response.text
+        response = send_day(client)
+        data = response.json()
+        # Parker picked an entree; Kylee defaults to make-at-home on send.
+        assert data["day_totals"][MENU_DATE] == 2
+        assert data["day_sent"][MENU_DATE] == 1
+        assert any(h["action"] == "Sent to Skylight" for h in data["history"])
 
     def test_the_client_is_always_closed(self, app_module, client, skylight, kid_ids):
         skylight.fail_create_recipe_for.add("P- Cheese Pizza")
