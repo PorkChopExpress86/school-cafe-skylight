@@ -90,21 +90,39 @@ td.check { text-align: center; width: 5.5rem; }
   cursor: pointer;
   padding: 0;
   color: transparent;
+  transition: transform 80ms ease;
 }
 .check-btn:hover { border-color: var(--c); color: var(--c); }
 .check-btn.on { color: white; }
+.check-btn.sent { color: var(--c); font-weight: bold; }
+.check-btn.htmx-request { opacity: 0.5; transform: scale(0.92); }
 
-.send-form button {
+.send-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+.send-btn {
   background: #0f172a;
   color: white;
   border: 0;
-  padding: 0.4rem 0.75rem;
+  padding: 0.4rem 0.85rem;
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.85rem;
 }
-.send-form button:hover { background: #1e293b; }
-.send-form button:disabled { background: var(--muted); cursor: not-allowed; }
+.send-btn:hover { background: #1e293b; }
+.send-btn:disabled { background: var(--muted); cursor: not-allowed; }
+.send-btn.htmx-request { opacity: 0.6; }
+.send-status {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: right;
+  max-width: 18rem;
+}
+.send-status .ok { color: var(--flash-fg); }
+.send-status .warn-text { color: var(--warn-fg); }
 
 .warn, .flash {
   margin: 1rem auto;

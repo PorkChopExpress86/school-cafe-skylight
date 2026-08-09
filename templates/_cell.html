@@ -1,0 +1,12 @@
+{# One cell — the check button for (kid, date, item). Swapped in by HTMX. #}
+<button
+  type="button"
+  class="check-btn {% if is_sent %}sent{% elif checked %}on{% endif %}"
+  style="{% if is_sent %}background:transparent;border-color:var(--c);color:var(--c){% elif checked %}background:{{ kid.color }};border-color:{{ kid.color }}{% endif %}"
+  hx-post="/toggle"
+  hx-vals='{"kid_id": {{ kid.id }}, "menu_date": "{{ menu_date }}", "item_text": {{ item|tojson }}, "eats": {{ "0" if checked else "1" }}}'
+  hx-swap="outerHTML"
+  hx-target="this"
+  aria-label="{{ kid.name }} will {{ 'eat' if checked else 'skip' }} {{ item }}{% if is_sent %} (already sent to Skylight){% endif %}">
+  {% if is_sent %}✓✓{% elif checked %}✓{% else %}·{% endif %}
+</button>

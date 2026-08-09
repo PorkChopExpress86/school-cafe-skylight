@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block body %}
+<header>
+  <h1>School Lunch — week of {{ week[0].date.strftime('%b %d') if week else '?' }}</h1>
+  <nav>
+    <a href="/?date={{ prev_week }}">&larr; Prev</a>
+    <a href="/?date={{ today }}">This week</a>
+    <a href="/?date={{ next_week }}">Next &rarr;</a>
+  </nav>
+</header>
+
+{% if flash %}
+<div class="flash" id="flash">{{ flash }}</div>
+{% endif %}
+
+{% if not school_cfg %}
+<div class="warn">
+  Set <code>SCHOOL_ID</code> in <code>.env</code> to fetch the weekly menu.
+  (<code>python school_menu.py --school-id ...</code> to test it standalone.)
+</div>
+{% elif not week %}
+<div class="warn">
+  Could not fetch menu{% if menu_error %}: {{ menu_error }}{% endif %}.
+</div>
+{% endif %}
+
+{% if week and kids %}
+<main>
+  {% for day in week %}
+  <section class="day">
+    <div class="day-head">
+      <h2>{{ day.date.strftime('%A') }} <small>{{ day.date.strftime('%b %d, %Y') }}</small></h2>
+      <div id="send-{{ day.date.isoformat() }}">
+        {% with menu_date=day.date.isoformat(),
+                eats_count=0,
+                sent_count=0,
+                result=None %}
+          {% include "_send.html" %}
+        {% endwith %}
+      </div>
+    </div>
+
+    {% if not day.items %}
+    <p class="muted">No menu posted.</p>
+    {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          {% for kid in kids %}
+          <th class="kid" style="--c: {{ kid.color }}">{{ kid.name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in day.items %}
+        <tr>
+          <td class="item">{{ item }}</td>
+          {% for kid in kids %}
+            {% set checked = choices.get(day.date.isoformat(), {}).get(kid.id, {}).get(item, False) %}
+            {% set is_sent = sent.get(day.date.isoformat(), {}).get(kid.id, {}).get(item, False) %}
+            <td class="check" style="--c: {{ kid.color }}">
+              {% include "_cell.html" %}
+            </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+  {% endfor %}
+</main>
+{% endif %}
+
+<footer>
+  <details>
+    <summary>Config</summary>
+    <pre>School: {{ school_cfg.school_id if school_cfg else 'unset' }} ({{ school_cfg.meal_type if school_cfg else '?' }})
+Skylight: {{ skylight_cfg.email or 'unset' }}{% if skylight_cfg.frame_id %} (frame {{ skylight_cfg.frame_id }}){% endif %}</pre>
+  </details>
+</footer>
+{% endblock %}

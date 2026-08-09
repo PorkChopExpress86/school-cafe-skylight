@@ -1,0 +1,22 @@
+{# Per-day send-to-Skylight button + status line. Swapped in by HTMX. #}
+<div class="send-block">
+  <button
+    type="button"
+    class="send-btn"
+    {% if not eats_count and not sent_count %}disabled{% endif %}
+    hx-post="/send-day"
+    hx-vals='{"menu_date": "{{ menu_date }}"}'
+    hx-target="#send-{{ menu_date }}"
+    hx-swap="outerHTML">
+    Send to Skylight
+  </button>
+  <div class="send-status">
+    {% if result %}
+      <span class="{% if result.ok %}ok{% else %}warn-text{% endif %}">{{ result.message }}</span>
+    {% elif eats_count %}
+      {{ eats_count }} checked, {{ sent_count }} sent
+    {% elif sent_count %}
+      {{ sent_count }} sent
+    {% endif %}
+  </div>
+</div>
