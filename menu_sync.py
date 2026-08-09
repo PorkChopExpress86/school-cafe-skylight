@@ -94,8 +94,136 @@ def _init_menu_tables(conn: Any) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_menu_sync_log_attempted_at
             ON menu_sync_log(attempted_at);
+
+        -- Per-item display overrides. A lookup table that maps the original
+        -- case-formatted description to whatever the user wants to show
+        -- instead. No date column: an override applies to every occurrence
+        -- of that description, past and future, until the user clears it.
+        CREATE TABLE IF NOT EXISTS menu_item_overrides (
+            original_description     TEXT PRIMARY KEY,
+            replacement_description TEXT NOT NULL,
+            created_at              TEXT NOT NULL,
+            updated_at              TEXT NOT NULL
+        );
         """
     )
+
+
+def fetch_all_overrides(db_path: Path) -> dict[str, str]:
+    """Return {original_description: replacement_description} for all overrides.
+
+    Used by the admin page to render items with the user's chosen display
+    text. Called fresh on every page load so edits show up immediately.
+    """
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT original_description, replacement_description "
+            "FROM menu_item_overrides"
+        ).fetchall()
+    return {orig: repl for orig, repl in rows}
+
+
+def set_menu_override(
+    original: str, replacement: str, db_path: Path | None = None
+) -> None:
+    """Insert or update the override for ``original``.
+
+    Empty ``replacement`` clears the override (see ``clear_menu_override``).
+    Whitespace is stripped. The original must already appear in
+    ``menu_items`` (we don't override items that don't exist).
+    """
+    import sqlite3
+    if db_path is None:
+        db_path = Path(__file__).resolve().parent / "app.db"
+    original = original.strip()
+    replacement = replacement.strip()
+    if not replacement:
+        clear_menu_override(original, db_path)
+        return
+    now = datetime.now().isoformat(timespec="seconds")
+    with sqlite3.connect(db_path) as conn:
+        _init_menu_tables(conn)
+        conn.execute(
+            """
+            INSERT INTO menu_item_overrides
+                (original_description, replacement_description, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(original_description) DO UPDATE
+                SET replacement_description = excluded.replacement_description,
+                    updated_at = excluded.updated_at
+            """,
+            (original, replacement, now, now),
+        )
+        conn.commit()
+
+
+def clear_menu_override(original: str, db_path: Path | None = None) -> None:
+    """Remove the override for ``original`` so it displays normally again."""
+    import sqlite3
+    if db_path is None:
+        db_path = Path(__file__).resolve().parent / "app.db"
+    with sqlite3.connect(db_path) as conn:
+        _init_menu_tables(conn)
+        conn.execute(
+            "DELETE FROM menu_item_overrides WHERE original_description = ?",
+            (original.strip(),),
+        )
+        conn.commit()
+
+
+def apply_overrides_to_items(
+    items: list[dict], overrides: dict[str, str]
+) -> list[dict]:
+    """Return a copy of ``items`` with overrides applied.
+
+    Returns a shallow dict copy per row so the input list and dicts
+    aren't mutated. Items without an override pass through with
+    ``display_description == description``.
+    """
+    out: list[dict] = []
+    for item in items:
+        row = dict(item)
+        row["display_description"] = overrides.get(
+            row["description"], row["description"]
+        )
+        out.append(row)
+    return out
+
+
+def apply_overrides_to_week(
+    week: list[Any], overrides: dict[str, str] | None = None, db_path: Path | None = None
+) -> list[Any]:
+    """Return a copy of a fetched week (list of DayMenu) with display
+    overrides applied to every entree description.
+
+    ``week`` is what ``school_menu.get_weekly_items`` returns: a list of
+    DayMenu objects, each with ``date`` and ``items`` (list of MenuItem).
+    The returned list has the same structure; only the entree
+    descriptions are rewritten to the user's chosen display text.
+
+    If ``overrides`` is None, the overrides are loaded from the DB.
+    """
+    if overrides is None:
+        if db_path is None:
+            db_path = Path(__file__).resolve().parent / "app.db"
+        overrides = fetch_all_overrides(db_path)
+    if not overrides:
+        return week
+
+    from school_menu import DayMenu, MenuItem
+
+    out: list[Any] = []
+    for day in week:
+        new_items = [
+            MenuItem(
+                description=overrides.get(i.description, i.description) or i.description,
+                category=i.category,
+            )
+            for i in day.items
+        ]
+        out.append(DayMenu(date=day.date, items=new_items))
+    return out
 
 
 def _store_menu_items(

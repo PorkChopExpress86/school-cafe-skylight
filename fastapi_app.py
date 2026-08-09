@@ -326,11 +326,21 @@ def fetch_week(ref: date_cls) -> tuple[list | None, str | None]:
     monday = get_week_dates(ref)[0]
     cached = _cached_week(cfg, monday)
     if cached is not None:
-        return cached, None
+        # Apply user display overrides even on a cache hit, so an edit
+        # made on the admin page shows up immediately without waiting
+        # for the cache to expire.
+        from menu_sync import apply_overrides_to_week
+
+        return apply_overrides_to_week(cached, None, DB_PATH), None
     try:
         week = get_weekly_items(cfg, ref)
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
+    # Apply user display overrides (persistent lookup table) so the
+    # dashboard shows the corrected spelling, not the raw API text.
+    from menu_sync import apply_overrides_to_week
+
+    week = apply_overrides_to_week(week, None, DB_PATH)
     _store_week(cfg, monday, week)
     return week, None
 
@@ -953,14 +963,21 @@ def admin(request: Request):
     so the page never makes a network call. The cache is populated by
     the Sunday cron task; if it's stale or empty, the cron will catch
     up on the next run.
+
+    Menu items are rendered with any user overrides applied, so the
+    page shows exactly what the user wants displayed.
     """
     from menu_sync import (
+        apply_overrides_to_items,
+        fetch_all_overrides,
         fetch_distinct_weeks,
         fetch_menu_items,
         fetch_recent_sync_attempts,
     )
     weeks = fetch_distinct_weeks(DB_PATH)
     items = fetch_menu_items(DB_PATH)
+    overrides = fetch_all_overrides(DB_PATH)
+    items = apply_overrides_to_items(items, overrides)
     attempts = fetch_recent_sync_attempts(DB_PATH, limit=50)
     return templates.TemplateResponse(
         request,
@@ -968,12 +985,32 @@ def admin(request: Request):
         {
             "weeks": weeks,
             "items": items,
+            "overrides": overrides,
             "attempts": attempts,
             "last_success": next(
                 (a for a in attempts if a["succeeded"]), None
             ),
         },
     )
+
+
+@app.post("/admin/override", response_class=HTMLResponse)
+def admin_override(
+    request: Request,
+    original: Annotated[str, Form()],
+    replacement: Annotated[str, Form()],
+):
+    """Set or clear a menu-item display override.
+
+    ``replacement`` is the new display text for ``original``. An empty
+    replacement clears the override. The override is a lookup table
+    keyed by the original description, so it applies to every occurrence
+    of that item in every week, past and future, until cleared.
+    """
+    from menu_sync import set_menu_override
+
+    set_menu_override(original, replacement, DB_PATH)
+    return admin(request)
 
 
 @app.post("/admin/sync", response_class=HTMLResponse)

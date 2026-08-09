@@ -59,16 +59,15 @@
   {% endif %}
 </section>
 
-{# Cached menu items #}
+{# Cached menu items with override editing #}
 <section class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
   <div class="px-5 py-3 bg-slate-50 border-b border-slate-200">
     <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider">
       Cached menu items
     </h2>
     <p class="text-xs text-slate-400 mt-0.5">
-      Spelling and capitalization as the live page will render them.
-      Add new acronyms to <code>school_menu.ACRONYMS</code> if an item
-      isn't recognized.
+      Edit the display text for any item. Overrides persist forever and apply
+      to every week, past and future. Leave the replacement blank to clear.
     </p>
   </div>
 
@@ -83,8 +82,9 @@
         <thead>
           <tr class="text-xs text-slate-400 uppercase tracking-wider">
             <th class="text-left font-normal pb-2">Date</th>
-            <th class="text-left font-normal pb-2">Description</th>
-            <th class="text-left font-normal pb-2">Category</th>
+            <th class="text-left font-normal pb-2">Display text</th>
+            <th class="text-left font-normal pb-2">Original</th>
+            <th class="text-left font-normal pb-2">Edit</th>
           </tr>
         </thead>
         <tbody>
@@ -92,8 +92,28 @@
             {% if item.week_start == week_start %}
             <tr class="border-t border-slate-50">
               <td class="py-1.5 text-slate-500 font-mono text-xs">{{ item.menu_date }}</td>
-              <td class="py-1.5 text-slate-800">{{ item.description }}</td>
-              <td class="py-1.5 text-slate-400 text-xs">{{ item.category }}</td>
+              <td class="py-1.5 text-slate-800 font-medium">
+                {{ item.display_description }}
+                {% if item.display_description != item.description %}
+                <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">overridden</span>
+                {% endif %}
+              </td>
+              <td class="py-1.5 text-slate-400 text-xs">{{ item.description }}</td>
+              <td class="py-1.5">
+                <form method="post" action="/admin/override" hx-post="/admin/override"
+                      hx-target="#admin-content" hx-swap="outerHTML"
+                      class="flex items-center gap-1">
+                  <input type="hidden" name="original" value="{{ item.description }}">
+                  <input type="text" name="replacement"
+                         value="{{ item.display_description }}"
+                         class="px-2 py-1 text-xs rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-500 w-48"
+                         placeholder="Display text">
+                  <button type="submit"
+                          class="px-2 py-1 text-xs font-medium rounded bg-slate-800 text-white hover:bg-slate-700">
+                    Save
+                  </button>
+                </form>
+              </td>
             </tr>
             {% endif %}
           {% endfor %}
