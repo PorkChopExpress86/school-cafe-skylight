@@ -2,22 +2,35 @@
 # Single user-mode image; runs as UID 1000; expects /app/.env and a
 # writable /app mount for app.db (both bind-mounted at run time).
 
-FROM docker.io/library/python:3.12-slim
+FROM docker.io/library/python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Create a non-root user matching the typical rootless host UID (1000).
-# The bind mount will pass through the host UID via --userns=keep-id, so
-# file ownership matches the host user.
-RUN groupadd -g 1000 app && useradd -u 1000 -g 1000 -d /app -s /bin/bash app
+# Build with a fixed UID/GID of 1000 (the typical first non-root UID on
+# Fedora and most Linux distros). The bind mount will use --userns=keep-id
+# at run time, so this UID is remapped to your host UID -- files written
+# inside the container will be owned by you, not by an orphaned UID.
+#
+# We deliberately create the user with NUMERIC IDs (no `--non-unique`)
+# so the build is reproducible on any host. If your host UID isn't 1000,
+# override at build time:
+#
+#     podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) ...
+#
+ARG UID=1000
+ARG GID=1000
+
+RUN groupadd -g ${GID} app \
+    && useradd  -u ${UID} -g ${GID} -d /app -s /bin/bash -m app
 
 WORKDIR /app
 
 # git is needed only to install pyskylight from GitHub at build time.
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first so the layer caches across code changes.
@@ -29,11 +42,13 @@ COPY fastapi_app.py school_menu.py skylight_menu.py /app/
 COPY templates /app/templates
 COPY static /app/static
 
-# Give the non-root user ownership of the app directory so it can
-# create app.db on first startup.
-RUN chown -R app:app /app
+# Give the app user ownership of the workdir so it can create app.db on
+# first startup and so any future bind-mount at /app lands in writable
+# territory. Use numeric IDs (not 'app:app') so this works regardless of
+# whether the in-container UID matches the one we created above.
+RUN chown -R ${UID}:${GID} /app
 
-USER app
+USER ${UID}:${GID}
 EXPOSE 8000
 
 # Container-internal default; the bind mount at /app/.env overrides this

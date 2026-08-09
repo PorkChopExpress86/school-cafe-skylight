@@ -3,8 +3,12 @@
 Build and run the FastAPI app as a rootless Podman container on Fedora.
 
 ```bash
-# One-time build
-podman build -t school-cafe-skylight:latest .
+```bash
+# One-time build (pass your host UID/GID so the in-container user
+# matches yours exactly -- no orphan files, no permission surprises)
+podman build \
+  --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
+  -t school-cafe-skylight:latest .
 
 # Run (port 8000, host network, bind-mounted .env + token cache)
 podman run -d \
@@ -29,6 +33,8 @@ podman restart school-cafe
 podman stop    school-cafe
 podman rm      school-cafe
 ```
+
+## Why these flags
 
 ## Why these flags
 
