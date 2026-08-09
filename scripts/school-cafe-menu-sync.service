@@ -21,7 +21,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/specter/dev/school-cafe-skylight
+WorkingDirectory=/home/specter/dev/school-cafe-skylight/backend
 ExecStart=/usr/bin/python3 menu_sync.py
 # The script retries internally for 48 hours on failure, so we don't
 # need a separate retry unit. But if the retry loop also fails, we

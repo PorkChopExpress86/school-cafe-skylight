@@ -1,12 +1,12 @@
 # Container Guide
 
-Build and run the FastAPI app as a rootless Podman container on Fedora.
+Build and run the FastAPI + React app as a rootless Podman container on Fedora.
 
 ---
 
 ## 1. Development Mode (with Live Hot-Reloading)
 
-To edit Python code (`fastapi_app.py`, `school_menu.py`, `skylight_menu.py`) or HTML templates (`templates/`) and have changes reflect **instantly without rebuilding the container**, bind-mount the source files and pass `--reload` to uvicorn:
+To edit Python code (`backend/*.py`) and have changes reflect instantly without rebuilding the container, bind-mount the source files and pass `--reload` to uvicorn:
 
 ```bash
 podman run -d \
@@ -14,28 +14,35 @@ podman run -d \
   --userns=keep-id \
   -p 127.0.0.1:8000:8000 \
   -v "$HOME/.cache/pyskylight:/home/app/.cache/pyskylight:z" \
-  -v "$PWD/.env:/app/.env:z" \
-  -v "$PWD/app.db:/app/app.db:z" \
-  -v "$PWD/fastapi_app.py:/app/fastapi_app.py:z" \
-  -v "$PWD/school_menu.py:/app/school_menu.py:z" \
-  -v "$PWD/skylight_menu.py:/app/skylight_menu.py:z" \
-  -v "$PWD/templates:/app/templates:z" \
-  -v "$PWD/static:/app/static:z" \
+  -v "$PWD/backend/.env:/app/.env:z" \
+  -v "$PWD/backend/app.db:/app/app.db:z" \
+  -v "$PWD/backend/fastapi_app.py:/app/fastapi_app.py:z" \
+  -v "$PWD/backend/school_menu.py:/app/school_menu.py:z" \
+  -v "$PWD/backend/skylight_menu.py:/app/skylight_menu.py:z" \
+  -v "$PWD/backend/menu_sync.py:/app/menu_sync.py:z" \
   school-cafe-skylight:latest \
   uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+For frontend development, run the Vite dev server separately:
+
+```bash
+cd frontend && npm run dev
+# Vite serves the SPA on :5173 and proxies /api to :8000
 ```
 
 ---
 
 ## 2. Production Mode (Standalone / Self-Contained)
 
-For a self-contained image where code files are baked into the container:
+The multi-stage Containerfile builds the React SPA (Node stage) and the Python API (Python stage) into one image:
 
 ```bash
 # Build image
 podman build \
   --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
-  -t school-cafe-skylight:latest .
+  -t school-cafe-skylight:latest \
+  -f backend/Containerfile .
 
 # Run container
 podman run -d \
@@ -43,9 +50,11 @@ podman run -d \
   --userns=keep-id \
   -p 127.0.0.1:8000:8000 \
   -v "$HOME/.cache/pyskylight:/home/app/.cache/pyskylight:z" \
-  -v "$PWD/.env:/app/.env:z" \
+  -v "$PWD/backend/.env:/app/.env:z" \
   school-cafe-skylight:latest
 ```
+
+The image serves both the API (`/api/*`) and the built SPA (`/` and `/admin`) on port 8000.
 
 ---
 
@@ -54,7 +63,7 @@ podman run -d \
 ```bash
 # Check status / logs
 podman logs -f school-cafe
-curl -sI http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/api/health
 
 # Restart / stop / remove
 podman restart school-cafe
