@@ -207,7 +207,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
             return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
 
         all_recipes = client.list_recipes(cfg["frame_id"])
-        recipes_by_summary = {((r.summary or "").strip().lower()): r for r in all_recipes}
+        recipes_by_summary = {(r.summary or "").strip(): r for r in all_recipes}
         recipes_by_id = {str(r.id): r for r in all_recipes}
 
         try:
@@ -260,7 +260,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
             selection = db.resolve_display_text(raw_selection, overrides)
             prefix = (row["kid_prefix"] or db._derive_kid_prefix(kid_name)).strip()
             summary = _recipe_summary(prefix, selection)
-            recipe = recipes_by_summary.get(summary.lower())
+            recipe = recipes_by_summary.get(summary)
             if recipe is None:
                 try:
                     recipe = client.create_recipe(
@@ -269,7 +269,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
                         description=f"{selection} (from school menu)",
                         meal_category_id=lunch_id,
                     )
-                    recipes_by_summary[summary.lower()] = recipe
+                    recipes_by_summary[summary] = recipe
                     recipes_by_id[str(recipe.id)] = recipe
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"create_recipe({summary!r}): {exc}")
@@ -544,7 +544,7 @@ def send_week_to_skylight(ref: date_cls) -> dict:
             return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
 
         all_recipes = client.list_recipes(cfg["frame_id"])
-        recipes_by_summary = {((r.summary or "").strip().lower()): r for r in all_recipes}
+        recipes_by_summary = {(r.summary or "").strip(): r for r in all_recipes}
         recipes_by_id = {str(r.id): r for r in all_recipes}
 
         for menu_date in dates:
@@ -604,7 +604,7 @@ def send_week_to_skylight(ref: date_cls) -> dict:
                 selection = db.resolve_display_text(raw_selection, overrides)
                 prefix = (row["kid_prefix"] or db._derive_kid_prefix(kid_name)).strip()
                 summary = _recipe_summary(prefix, selection)
-                recipe = recipes_by_summary.get(summary.lower())
+                recipe = recipes_by_summary.get(summary)
                 if recipe is None:
                     try:
                         recipe = client.create_recipe(
@@ -613,7 +613,7 @@ def send_week_to_skylight(ref: date_cls) -> dict:
                             description=f"{selection} (from school menu)",
                             meal_category_id=lunch_id,
                         )
-                        recipes_by_summary[summary.lower()] = recipe
+                        recipes_by_summary[summary] = recipe
                         recipes_by_id[str(recipe.id)] = recipe
                     except Exception as exc:  # noqa: BLE001
                         all_errors.append(f"create_recipe({summary!r}): {exc}")
