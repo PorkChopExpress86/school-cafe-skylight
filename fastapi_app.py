@@ -388,12 +388,12 @@ def _sanitize_selection(selection: str) -> str:
 def load_selections(
     conn: sqlite3.Connection, dates: list[str]
 ) -> dict[str, dict[int, dict]]:
-    """Return {date: {kid_id: {selection, sent_sitting_id}}} for the given dates."""
+    """Return {date: {kid_id: {selection, sent_at, sent_sitting_id}}} for the given dates."""
     if not dates:
         return {}
     placeholders = ",".join("?" * len(dates))
     rows = conn.execute(
-        f"SELECT kid_id, menu_date, selection, sent_sitting_id "
+        f"SELECT kid_id, menu_date, selection, sent_at, sent_sitting_id "
         f"FROM selections WHERE menu_date IN ({placeholders})",
         dates,
     ).fetchall()
@@ -401,6 +401,7 @@ def load_selections(
     for r in rows:
         out.setdefault(r["menu_date"], {})[r["kid_id"]] = {
             "selection": r["selection"],
+            "sent_at": r["sent_at"],
             "sent_sitting_id": r["sent_sitting_id"],
         }
     return out
@@ -639,7 +640,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
                 conn.execute(
                     "UPDATE selections SET sent_at = ?, sent_sitting_id = ? "
                     "WHERE kid_id = ? AND menu_date = ?",
-                    (now_iso if sitting_id else None, sitting_id, kid_id, menu_date),
+                    (now_iso, sitting_id, kid_id, menu_date),
                 )
                 conn.commit()
             except Exception as exc:  # noqa: BLE001
@@ -747,7 +748,7 @@ def select(
         conn.commit()
 
         current = conn.execute(
-            "SELECT selection, sent_sitting_id FROM selections WHERE kid_id=? AND menu_date=?",
+            "SELECT selection, sent_at FROM selections WHERE kid_id=? AND menu_date=?",
             (kid_id, menu_date),
         ).fetchone()
 
@@ -761,7 +762,7 @@ def select(
         sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
         history = fetch_recent_history(conn)
 
-    has_sent = bool(current and current["sent_sitting_id"])
+    has_sent = bool(current and current["sent_at"])
 
     # Normally a cache hit from the page load that rendered these cells;
     # falls back to a live fetch (and [] if that fails) after a restart.
@@ -859,7 +860,7 @@ def send_day(request: Request, menu_date: Annotated[str, Form()]):
 
     for kid in kids:
         current = day_data.get(kid["id"])
-        has_sent = bool(current and current["sent_sitting_id"])
+        has_sent = bool(current and current["sent_at"])
         selected_item = current["selection"] if current else None
 
         for idx, item in enumerate(entree_descriptions, 1):

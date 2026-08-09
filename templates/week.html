@@ -66,7 +66,7 @@
           {% for kid in kids %}
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
           {% set selected = current and current.selection == item_text %}
-          {% set is_sent = selected and current.sent_sitting_id %}
+          {% set is_sent = selected and current.sent_at %}
           {% set cell_id = "cell-" ~ day_iso ~ "-" ~ kid.id ~ "-" ~ entree_idx %}
           {% with menu_date=day_iso, kid=kid, item=item_text, selected=selected, is_sent=is_sent, cell_id=cell_id, is_oob=false %}
             {% include "_cell.html" %}
@@ -80,7 +80,7 @@
           {% for kid in kids %}
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
           {% set selected = current and current.selection == MAKE_AT_HOME %}
-          {% set is_sent = selected and current.sent_sitting_id %}
+          {% set is_sent = selected and current.sent_at %}
           {% set cell_id = "cell-" ~ day_iso ~ "-" ~ kid.id ~ "-home" %}
           {% with menu_date=day_iso, kid=kid, item=MAKE_AT_HOME, selected=selected, is_sent=is_sent, cell_id=cell_id, is_oob=false %}
             {% include "_cell.html" %}
