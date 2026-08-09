@@ -38,6 +38,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from menu_sync import _init_menu_tables  # noqa: E402  shared with menu_sync.py
 from school_menu import SchoolCafeConfig, get_week_dates, get_weekly_items
 from skylight_menu import SkylightClient
 from skylight_menu import load_config as load_skylight_config
@@ -128,6 +129,7 @@ def init_db() -> None:
                 (kid["name"], kid["color"], kid["prefix"]),
             )
         _backfill_kid_prefixes(conn)
+        _init_menu_tables(conn)
         conn.commit()
 
 
@@ -941,6 +943,60 @@ def send_day(request: Request, menu_date: Annotated[str, Form()]):
     history_html = templates.get_template("_history.html").render(history=history, is_oob=True)
     parts.append(history_html)
     return HTMLResponse("\n".join(parts))
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin(request: Request):
+    """Admin page: show cached menu items + sync history.
+
+    Reads the menu cache and the sync log directly from the SQLite DB
+    so the page never makes a network call. The cache is populated by
+    the Sunday cron task; if it's stale or empty, the cron will catch
+    up on the next run.
+    """
+    from menu_sync import (
+        fetch_distinct_weeks,
+        fetch_menu_items,
+        fetch_recent_sync_attempts,
+    )
+    weeks = fetch_distinct_weeks(DB_PATH)
+    items = fetch_menu_items(DB_PATH)
+    attempts = fetch_recent_sync_attempts(DB_PATH, limit=50)
+    return templates.TemplateResponse(
+        request,
+        "admin.html",
+        {
+            "weeks": weeks,
+            "items": items,
+            "attempts": attempts,
+            "last_success": next(
+                (a for a in attempts if a["succeeded"]), None
+            ),
+        },
+    )
+
+
+@app.post("/admin/sync", response_class=HTMLResponse)
+def admin_sync(request: Request):
+    """Trigger an immediate sync from the admin page (no waiting for Sunday).
+
+    Runs synchronously and returns the admin page with the new attempt
+    at the top of the log. Useful for confirming the weekly cron is
+    healthy after a config change.
+    """
+    from menu_sync import _load_env_config
+    from menu_sync import sync_menu as _sync_menu
+
+    config = _load_env_config()
+    if config is not None:
+        try:
+            _sync_menu(config)
+        except Exception:  # noqa: BLE001
+            # The failure is already logged in menu_sync_log;
+            # the admin page will show it.
+            pass
+
+    return admin(request)
 
 
 @app.get("/health", response_class=HTMLResponse)

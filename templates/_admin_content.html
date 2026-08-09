@@ -1,0 +1,110 @@
+{# Sync status summary #}
+<section class="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Last sync</h2>
+  {% if last_success %}
+  <div class="flex items-center gap-3">
+    <span class="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+      Success
+    </span>
+    <span class="text-sm text-slate-700">
+      {{ last_success.attempted_at }} &mdash;
+      {{ last_success.items_stored }} items across
+      {{ last_success.weeks_fetched }} weeks
+    </span>
+  </div>
+  {% else %}
+  <div class="flex items-center gap-3">
+    <span class="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-red-100 text-red-800 border border-red-200">
+      No successful sync yet
+    </span>
+  </div>
+  {% endif %}
+</section>
+
+{# Sync history #}
+<section class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+  <div class="px-5 py-3 bg-slate-50 border-b border-slate-200">
+    <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider">Sync history</h2>
+    <p class="text-xs text-slate-400 mt-0.5">
+      Most recent first. Sunday cron + 2-hour retries for 48 hours on failure.
+    </p>
+  </div>
+  {% if attempts %}
+  <div class="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+    {% for a in attempts %}
+    <div class="px-5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
+      <div class="flex items-center gap-3">
+        {% if a.succeeded %}
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+            OK
+          </span>
+          <span class="text-slate-700 font-medium">
+            {{ a.weeks_fetched }} weeks / {{ a.items_stored }} items
+          </span>
+        {% else %}
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-red-100 text-red-800 border border-red-200">
+            FAIL
+          </span>
+          <span class="text-red-700 font-medium">{{ a.error or '???' }}</span>
+        {% endif %}
+      </div>
+      <div class="text-slate-400 font-mono text-[11px]">{{ a.attempted_at }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-5 py-6 text-sm text-slate-400 italic text-center">
+    No sync attempts yet. Run the Sunday cron or click "Sync now".
+  </div>
+  {% endif %}
+</section>
+
+{# Cached menu items #}
+<section class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+  <div class="px-5 py-3 bg-slate-50 border-b border-slate-200">
+    <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider">
+      Cached menu items
+    </h2>
+    <p class="text-xs text-slate-400 mt-0.5">
+      Spelling and capitalization as the live page will render them.
+      Add new acronyms to <code>school_menu.ACRONYMS</code> if an item
+      isn't recognized.
+    </p>
+  </div>
+
+  {% if weeks %}
+  <div class="divide-y divide-slate-100">
+    {% for week_start in weeks %}
+    <div class="p-5">
+      <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+        Week of {{ week_start }}
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-400 uppercase tracking-wider">
+            <th class="text-left font-normal pb-2">Date</th>
+            <th class="text-left font-normal pb-2">Description</th>
+            <th class="text-left font-normal pb-2">Category</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            {% if item.week_start == week_start %}
+            <tr class="border-t border-slate-50">
+              <td class="py-1.5 text-slate-500 font-mono text-xs">{{ item.menu_date }}</td>
+              <td class="py-1.5 text-slate-800">{{ item.description }}</td>
+              <td class="py-1.5 text-slate-400 text-xs">{{ item.category }}</td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-5 py-6 text-sm text-slate-400 italic text-center">
+    No menu items cached yet. Run a sync to fetch the next 4 weeks.
+  </div>
+  {% endif %}
+</section>
