@@ -469,19 +469,45 @@ def _sitting_matches_kid_prefixes(
     recipe_id = str(getattr(sitting, "meal_recipe_id", ""))
     recipe = recipes_by_id.get(recipe_id)
     if recipe:
+        # pyskylight exposes recipe.summary as a direct attribute
         summary = (getattr(recipe, "summary", "") or "").strip().lower()
         if any(summary.startswith(p) for p in prefixes):
             return True
         if any(name.lower() in summary for name in kid_names):
             return True
 
-    sitting_summary = (getattr(sitting, "summary", "") or "").strip().lower()
-    sitting_note = (getattr(sitting, "note", "") or "").strip().lower()
+    # For the sitting itself, the fields live in sitting.attributes
+    # (JSON:API shape from pyskylight). The test fake uses flat attributes
+    # directly on the object, so check both.
+    attrs = getattr(sitting, "attributes", None) or {}
+    sitting_summary = (
+        attrs.get("summary") or getattr(sitting, "summary", "") or ""
+    ).strip().lower()
+    sitting_note = (
+        attrs.get("note") or getattr(sitting, "note", "") or ""
+    ).strip().lower()
     for name in kid_names:
         nl = name.lower()
         if nl in sitting_summary or nl in sitting_note:
             return True
     return False
+
+
+def _sitting_falls_on_date(sitting: Any, menu_date: str) -> bool:
+    """True if `sitting` is scheduled for `menu_date`.
+
+    Checks three shapes:
+    - pyskylight Sitting with a `.dates` property (list of ISO strings)
+    - flat `instances` list on the object (test fake)
+    - no date info at all - assume yes (safer to include than drop)
+    """
+    dates_prop = getattr(sitting, "dates", None)
+    if dates_prop:
+        return menu_date in list(dates_prop)
+    instances = getattr(sitting, "instances", None)
+    if instances:
+        return menu_date in list(instances)
+    return True
 
 
 def send_day_to_skylight(menu_date: str) -> dict:
@@ -567,12 +593,20 @@ def send_day_to_skylight(menu_date: str) -> dict:
         recipes_by_id = {str(r.id): r for r in all_recipes}
 
         try:
+            # Skylight's API returns empty results when date_min == date_max,
+            # so query a 2-day window and filter to the exact date below.
+            query_max = (date_cls.fromisoformat(menu_date) + timedelta(days=1)).isoformat()
             skylight_sittings = client.list_sittings(
-                cfg["frame_id"], date_min=menu_date, date_max=menu_date
+                cfg["frame_id"], date_min=menu_date, date_max=query_max
             )
+            # pyskylight Sitting exposes .dates; the test fake has a flat
+            # `instances` list (or none). Accept either shape. If neither is
+            # present, the sitting has no date info and we can't filter it
+            # out, so keep it for the wipe pass (safer than dropping it).
             lunch_sittings = [
                 s for s in skylight_sittings
                 if str(getattr(s, "meal_category_id", "")) == str(lunch_id)
+                and _sitting_falls_on_date(s, menu_date)
             ]
         except Exception as exc:  # noqa: BLE001
             return {
