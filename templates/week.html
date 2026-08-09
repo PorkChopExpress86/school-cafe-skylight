@@ -1,85 +1,105 @@
 {% extends "base.html" %}
 
 {% block body %}
-<header>
-  <h1>School Lunch - week of {{ week[0].date.strftime('%b %d') if week else '?' }}</h1>
-  <nav>
-    <a href="/?date={{ prev_week }}">&larr; Prev</a>
-    <a href="/?date={{ today }}">This week</a>
-    <a href="/?date={{ next_week }}">Next &rarr;</a>
-  </nav>
-</header>
+<div class="max-w-5xl mx-auto px-4 py-6">
 
-{% if flash %}
-<div class="flash" id="flash">{{ flash }}</div>
-{% endif %}
+  <header class="flex items-center justify-between mb-6">
+    <h1 class="text-xl font-bold text-slate-800">
+      School Lunch - week of
+      {% if week %}{{ week[0].date.strftime('%b %d') }}{% else %}?{% endif %}
+    </h1>
+    <nav class="flex gap-3 text-sm">
+      <a href="/?date={{ prev_week }}" class="px-3 py-1.5 bg-white rounded-md border border-slate-300 hover:bg-slate-50">&larr; Prev</a>
+      <a href="/?date={{ today }}" class="px-3 py-1.5 bg-white rounded-md border border-slate-300 hover:bg-slate-50">This week</a>
+      <a href="/?date={{ next_week }}" class="px-3 py-1.5 bg-white rounded-md border border-slate-300 hover:bg-slate-50">Next &rarr;</a>
+    </nav>
+  </header>
 
-{% if not school_cfg %}
-<div class="warn">
-  Set <code>SCHOOL_ID</code> in <code>.env</code> to fetch the weekly menu.
-  (<code>python school_menu.py --school-id ...</code> to test it standalone.)
-</div>
-{% elif not week %}
-<div class="warn">
-  Could not fetch menu{% if menu_error %}: {{ menu_error }}{% endif %}.
-</div>
-{% endif %}
+  {% if flash %}
+  <div class="mb-4 p-3 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm">{{ flash }}</div>
+  {% endif %}
 
-{% if week and kids %}
-<main>
-  {% for day in week %}
-  {% set day_iso = day.date.isoformat() %}
-  <section class="day">
-    <div class="day-head">
-      <h2>{{ day.date.strftime('%A') }} <small>{{ day.date.strftime('%b %d, %Y') }}</small></h2>
-      <div id="send-{{ day_iso }}">
-        {% with menu_date=day_iso, eats_count=0, sent_count=0, result=None %}
-          {% include "_send.html" %}
-        {% endwith %}
+  {% if not school_cfg %}
+  <div class="mb-4 p-3 rounded-md bg-amber-100 text-amber-800 border border-amber-300 text-sm">
+    Set <code class="bg-amber-200 px-1 rounded">SCHOOL_ID</code> in <code class="bg-amber-200 px-1 rounded">.env</code> to fetch the weekly menu.
+  </div>
+  {% elif not week %}
+  <div class="mb-4 p-3 rounded-md bg-amber-100 text-amber-800 border border-amber-300 text-sm">
+    Could not fetch menu{% if menu_error %}: {{ menu_error }}{% endif %}.
+  </div>
+  {% endif %}
+
+  {% if week and kids %}
+  <div class="space-y-4">
+    {% for day in week %}
+    {% set day_iso = day.date.isoformat() %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-200">
+        <h2 class="font-semibold text-slate-700">
+          {{ day.date.strftime('%A') }}
+          <span class="text-slate-400 font-normal ml-2">{{ day.date.strftime('%b %d, %Y') }}</span>
+        </h2>
+        <div id="send-{{ day_iso }}">
+          {% with menu_date=day_iso, total=0, sent_count=0, result=None %}
+            {% include "_send.html" %}
+          {% endwith %}
+        </div>
       </div>
-    </div>
 
-    {% if not day.entrees %}
-    <p class="muted">No entrees posted.</p>
-    {% else %}
-    <table>
-      <thead>
-        <tr>
-          <th>Entree</th>
+      {% if not day.entrees %}
+      <div class="px-5 py-4 text-slate-400 italic text-sm">No entrees posted.</div>
+      {% else %}
+      <div class="p-5">
+        <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center pb-2 mb-1 border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+          <div>Entree</div>
           {% for kid in kids %}
-          <th class="kid" style="--c: {{ kid.color }}">{{ kid.name }}</th>
+          <div class="text-center w-8" style="color: {{ kid.color }}">{{ kid.name }}</div>
           {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
+        </div>
+
         {% for item in day.entrees %}
         {% set item_text = item.description %}
-        <tr>
-          <td class="item">{{ item_text }}</td>
+        <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-1.5 hover:bg-slate-50 rounded">
+          <div class="text-sm text-slate-700">{{ item_text }}</div>
           {% for kid in kids %}
-            {% set checked = choices.get(day_iso, {}).get(kid.id, {}).get(item_text, False) %}
-            {% set is_sent = sent.get(day_iso, {}).get(kid.id, {}).get(item_text, False) %}
-            <td class="check" style="--c: {{ kid.color }}">
-              {% with menu_date=day_iso, kid=kid, item=item_text, checked=checked, is_sent=is_sent %}
-                {% include "_cell.html" %}
-              {% endwith %}
-            </td>
+          {% set current = selections.get(day_iso, {}).get(kid.id) %}
+          {% set selected = current and current.selection == item_text %}
+          {% set is_sent = current and current.sent_sitting_id %}
+          <div class="text-center w-8" id="cell-{{ day_iso }}-{{ kid.id }}-{{ loop.index }}">
+            {% with menu_date=day_iso, kid=kid, item=item_text, selected=selected, is_sent=is_sent %}
+              {% include "_cell.html" %}
+            {% endwith %}
+          </div>
           {% endfor %}
-        </tr>
+        </div>
         {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </section>
-  {% endfor %}
-</main>
-{% endif %}
 
-<footer>
-  <details>
-    <summary>Config</summary>
-    <pre>School: {{ school_cfg.school_id if school_cfg else 'unset' }} ({{ school_cfg.meal_type if school_cfg else '?' }})
+        <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-1.5 mt-2 pt-2 border-t border-slate-200">
+          <div class="text-sm text-emerald-700 font-medium">Make at home</div>
+          {% for kid in kids %}
+          {% set current = selections.get(day_iso, {}).get(kid.id) %}
+          {% set selected = current and current.selection == MAKE_AT_HOME %}
+          {% set is_sent = current and current.sent_sitting_id %}
+          <div class="text-center w-8" id="cell-{{ day_iso }}-{{ kid.id }}-home">
+            {% with menu_date=day_iso, kid=kid, item=MAKE_AT_HOME, selected=selected, is_sent=is_sent %}
+              {% include "_cell.html" %}
+            {% endwith %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <footer class="mt-6 text-xs text-slate-400">
+    <details>
+      <summary class="cursor-pointer hover:text-slate-600">Config</summary>
+      <pre class="mt-2 p-3 bg-white rounded border border-slate-200">School: {{ school_cfg.school_id if school_cfg else 'unset' }} ({{ school_cfg.meal_type if school_cfg else '?' }})
 Skylight: {{ skylight_cfg.email or 'unset' }}{% if skylight_cfg.frame_id %} (frame {{ skylight_cfg.frame_id }}){% endif %}</pre>
-  </details>
-</footer>
+    </details>
+  </footer>
+</div>
 {% endblock %}

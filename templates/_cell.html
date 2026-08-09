@@ -1,12 +1,26 @@
-{# One cell - the check button for (kid, date, item). Swapped in by HTMX. #}
+{# One radio cell - select this entree for (kid, date). Swapped in by HTMX. #}
+{% set is_make_home = item == MAKE_AT_HOME %}
 <button
   type="button"
-  class="check-btn {% if is_sent %}sent{% elif checked %}on{% endif %}"
-  style="{% if is_sent %}background:transparent;border-color:var(--c);color:var(--c){% elif checked %}background:{{ kid.color }};border-color:{{ kid.color }}{% endif %}"
-  hx-post="/toggle"
-  hx-vals='{"kid_id": {{ kid.id }}, "menu_date": "{{ menu_date }}", "item_text": {{ item|tojson }}, "eats": {{ "0" if checked else "1" }}}'
+  hx-post="/select"
+  hx-vals='{"kid_id": {{ kid.id }}, "menu_date": "{{ menu_date }}", "selection": {{ item|tojson }}}'
   hx-swap="outerHTML"
   hx-target="this"
-  aria-label="{{ kid.name }} will {{ 'eat' if checked else 'skip' }} {{ item }}{% if is_sent %} (already sent to Skylight){% endif %}">
-  {% if is_sent %}✓✓{% elif checked %}✓{% else %}·{% endif %}
+  class="inline-flex items-center justify-center w-7 h-7 rounded-full border-2 transition-all
+         {% if is_sent %}
+           border-slate-400 text-slate-400 bg-transparent cursor-default
+         {% elif selected %}
+           {% if is_make_home %}border-emerald-500 text-white bg-emerald-500{% else %}text-white{% endif %}
+         {% else %}
+           border-slate-200 text-transparent hover:border-slate-400
+         {% endif %}"
+  {% if selected and not is_make_home and not is_sent %}style="border-color: {{ kid.color }}; background-color: {{ kid.color }}"{% endif %}
+  aria-label="{{ kid.name }} {{ 'will make at home' if is_make_home else ('will eat ' + item) }}{% if is_sent %} (sent to Skylight){% endif %}">
+  {% if is_sent %}
+    &#10003;&#10003;
+  {% elif selected %}
+    &#10003;
+  {% else %}
+    &middot;
+  {% endif %}
 </button>

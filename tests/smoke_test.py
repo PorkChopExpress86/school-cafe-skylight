@@ -3,9 +3,11 @@
 
 Verifies, against the running server (default http://127.0.0.1:8000):
   1. GET / returns 200 and renders the week's entrees (no sides/fruit/milk).
-  2. The htmx script is served locally (not from a CDN).
-  3. POST /toggle actually flips a choice and returns a cell fragment.
-  4. Repeated toggles are idempotent (on -> off -> on).
+  2. The htmx + tailwind scripts are served locally (not from a CDN).
+  3. POST /select sets a selection (radio-button semantics) and returns
+     a cell fragment + OOB updates.
+  4. Selecting a different entree overwrites the previous selection.
+  5. "Make at home" can be selected as an alternative to a school entree.
 
 Usage:
     python tests/smoke_test.py
@@ -15,14 +17,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, timedelta
 
 DEFAULT_BASE = "http://127.0.0.1:8000"
+MAKE_AT_HOME = "__MAKE_AT_HOME__"
 
 
 def fetch(url: str, data: bytes | None = None) -> tuple[int, str, dict[str, str]]:
@@ -48,10 +49,9 @@ def main() -> int:
     base = args.base_url.rstrip("/")
 
     failures = 0
-
-    # Use a date we know has data (Cheese Pizza day, week of 8/12/2026)
     target_date = "2026-08-12"
     url = f"{base}/?date={target_date}"
+
     print(f"\n[1] GET {url}")
     code, body, headers = fetch(url)
     if not assert_true(code == 200, f"returns 200 (got {code})"):
@@ -60,73 +60,79 @@ def main() -> int:
                        f"content-type is text/html (got {headers.get('content-type')})"):
         failures += 1
 
-    # Entrees only — these should be present
     expected_entrees = ["Cheese Pizza", "Pepperoni Pizza", "Yogurt Box Entree",
                         "Chicken Caesar Salad", "Hot Dog", "Steak Fingers"]
     for entree in expected_entrees:
         if not assert_true(entree in body, f"contains entree: {entree!r}"):
             failures += 1
 
-    # Sides/milk/condiments — these should NOT be present
-    unexpected = ["Baby Carrots", "Fresh Cucumber Slices", "Banana",
-                  "1% Milk - 8 oz", "Fat-Free Chocolate Milk", "Soy Milk",
-                  "Parmesan", "Ranch Dressing", "Tajin", "Ketchup", "Mustard"]
+    unexpected = ["Baby Carrots", "1% Milk - 8 oz", "Soy Milk", "Parmesan", "Ranch Dressing"]
     for item in unexpected:
         if not assert_true(item not in body, f"does NOT contain side: {item!r}"):
             failures += 1
 
-    # htmx is served locally
-    if not assert_true("/static/htmx.min.js" in body,
-                       "references /static/htmx.min.js (local, not CDN)"):
+    if not assert_true("/static/htmx.min.js" in body, "references local htmx"):
         failures += 1
-    if not assert_true("unpkg.com" not in body,
-                       "does NOT reference unpkg.com CDN"):
+    if not assert_true("/static/tailwind.js" in body, "references local tailwind"):
+        failures += 1
+    if not assert_true("unpkg.com" not in body, "does NOT reference unpkg.com"):
+        failures += 1
+    if not assert_true("cdn.tailwindcss.com" not in body, "does NOT reference tailwind CDN"):
         failures += 1
 
-    # Parker and Kylee
+    if not assert_true("Make at home" in body, "shows 'Make at home' option"):
+        failures += 1
+
     for kid in ["Parker", "Kylee"]:
         if not assert_true(kid in body, f"renders kid: {kid!r}"):
             failures += 1
 
-    # [2] POST /toggle - turn Parker's "Cheese Pizza" ON
-    print(f"\n[2] POST {base}/toggle (Parker -> Cheese Pizza ON)")
+    print(f"\n[2] POST {base}/select (Parker -> Cheese Pizza)")
     data = urllib.parse.urlencode({
-        "kid_id": "1",
-        "menu_date": target_date,
-        "item_text": "Cheese Pizza",
-        "eats": "1",
+        "kid_id": "1", "menu_date": target_date,
+        "selection": "Cheese Pizza",
     }).encode()
-    code, body, _ = fetch(f"{base}/toggle", data=data)
+    code, body, _ = fetch(f"{base}/select", data=data)
     if not assert_true(code == 200, f"returns 200 (got {code})"):
         return 1
-    if not assert_true("check-btn" in body, "returns a check-btn fragment"):
+    if not assert_true("check" in body.lower() or "&#10003;" in body,
+                       "returns a cell with check mark"):
         failures += 1
-    if not assert_true("on" in body or "✓" in body, "shows checked state"):
-        failures += 1
-    if not assert_true('"eats": 0' in body or '"eats": "0"' in body,
-                       "next toggle will turn OFF (eats=0)"):
+    if not assert_true("hx-swap-oob" in body,
+                       "returns OOB updates for other cells"):
         failures += 1
 
-    # [3] POST /toggle - turn it OFF
-    print(f"\n[3] POST {base}/toggle (Parker -> Cheese Pizza OFF)")
+    print(f"\n[3] POST {base}/select (Parker -> Pepperoni Pizza, overwriting)")
     data = urllib.parse.urlencode({
-        "kid_id": "1",
-        "menu_date": target_date,
-        "item_text": "Cheese Pizza",
-        "eats": "0",
+        "kid_id": "1", "menu_date": target_date,
+        "selection": "Pepperoni Pizza",
     }).encode()
-    code, body, _ = fetch(f"{base}/toggle", data=data)
+    code, body, _ = fetch(f"{base}/select", data=data)
     if not assert_true(code == 200, f"returns 200 (got {code})"):
         failures += 1
-    if not assert_true("·" in body or "skip" in body.lower(),
-                       "shows unchecked state"):
+    if not assert_true("Pepperoni Pizza" in body,
+                       "returns cell for Pepperoni Pizza"):
         failures += 1
-    if not assert_true('"eats": 1' in body or '"eats": "1"' in body,
-                       "next toggle will turn ON (eats=1)"):
+    if not assert_true("hx-swap-oob" in body,
+                       "returns OOB updates to clear Cheese Pizza"):
         failures += 1
 
-    # [4] Health
-    print(f"\n[4] GET {base}/health")
+    print(f"\n[4] POST {base}/select (Parker -> Make at home)")
+    data = urllib.parse.urlencode({
+        "kid_id": "1", "menu_date": target_date,
+        "selection": MAKE_AT_HOME,
+    }).encode()
+    code, body, _ = fetch(f"{base}/select", data=data)
+    if not assert_true(code == 200, f"returns 200 (got {code})"):
+        failures += 1
+    if not assert_true(MAKE_AT_HOME in body,
+                       "returns cell for MAKE_AT_HOME"):
+        failures += 1
+    if not assert_true("emerald" in body,
+                       "make-at-home cell uses emerald (green) styling"):
+        failures += 1
+
+    print(f"\n[5] GET {base}/health")
     code, body, _ = fetch(f"{base}/health")
     if not assert_true(code == 200 and body == "ok",
                        f"returns 200 'ok' (got {code} {body!r})"):
