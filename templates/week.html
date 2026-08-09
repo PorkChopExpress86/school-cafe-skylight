@@ -59,13 +59,14 @@
 
         {% for item in day.entrees %}
         {% set item_text = item.description %}
+        {% set entree_idx = loop.index %}
         <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-1.5 hover:bg-slate-50 rounded">
           <div class="text-sm text-slate-700">{{ item_text }}</div>
           {% for kid in kids %}
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
           {% set selected = current and current.selection == item_text %}
           {% set is_sent = current and current.sent_sitting_id %}
-          <div class="text-center min-w-20" id="cell-{{ day_iso }}-{{ kid.id }}-{{ loop.index }}">
+          <div class="text-center min-w-20" id="cell-{{ day_iso }}-{{ kid.id }}-{{ entree_idx }}">
             {% with menu_date=day_iso, kid=kid, item=item_text, selected=selected, is_sent=is_sent %}
               {% include "_cell.html" %}
             {% endwith %}
