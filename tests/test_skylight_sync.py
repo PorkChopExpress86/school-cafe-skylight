@@ -156,6 +156,26 @@ class TestPrefixScopedWipe:
         assert "stray-1" in skylight.deleted_ids
         assert result["deleted"] == 1
 
+    def test_wipes_all_duplicates_not_just_one(
+        self, app_module, client, skylight, kid_ids
+    ):
+        """If the calendar already has multiple sittings for the same kid
+        on the same date (duplicates from prior sends), every one of them
+        must be removed before the new sitting is created."""
+        dup1 = skylight.seed("P- Cheese Pizza", "cat-lunch")
+        dup2 = skylight.seed("P- Cheese Pizza", "cat-lunch")
+        dup3 = skylight.seed("K- Hot Dog", "cat-lunch")
+        pick(client, kid_ids["Parker"], ENTREES[0])
+        pick(client, kid_ids["Kylee"], ENTREES[1])
+
+        result = app_module.send_day_to_skylight(MENU_DATE)
+
+        assert str(dup1.id) in skylight.deleted_ids
+        assert str(dup2.id) in skylight.deleted_ids
+        assert str(dup3.id) in skylight.deleted_ids
+        assert result["deleted"] == 3
+        assert len(skylight.sittings) == 2
+
 
 class TestUnpickedKidsDefaultToMakeAtHome:
     """An unattended send must never invent a meal nobody chose."""
