@@ -4,3 +4,15 @@ testpaths = ["tests"]
 # it is deliberately not named test_*.py so pytest won't collect it.
 python_files = ["test_*.py"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true
+warn_unused_ignores = true

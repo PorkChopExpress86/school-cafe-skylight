@@ -22,7 +22,8 @@ import argparse
 import json
 import os
 import sys
-from datetime import date as date_cls, datetime, timedelta
+from datetime import date as date_cls
+from datetime import timedelta
 from typing import Any
 
 from dotenv import load_dotenv

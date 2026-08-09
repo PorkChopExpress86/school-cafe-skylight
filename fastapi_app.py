@@ -27,7 +27,8 @@ import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager, contextmanager
-from datetime import date as date_cls, datetime, timedelta
+from datetime import date as date_cls
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -38,7 +39,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from school_menu import SchoolCafeConfig, get_week_dates, get_weekly_items
-from skylight_menu import SkylightClient, load_config as load_skylight_config
+from skylight_menu import SkylightClient
+from skylight_menu import load_config as load_skylight_config
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "app.db"
@@ -550,8 +552,20 @@ def send_day_to_skylight(menu_date: str) -> dict:
                 s for s in skylight_sittings
                 if str(getattr(s, "meal_category_id", "")) == str(lunch_id)
             ]
-        except Exception:
-            lunch_sittings = []
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "message": (
+                    f"Could not list existing sittings from Skylight for "
+                    f"{menu_date}: {exc}. Aborting to avoid creating "
+                    f"duplicate entries."
+                ),
+                "sent": 0,
+                "deleted": 0,
+                "skipped": 0,
+                "errors": [f"list_sittings({menu_date}): {exc}"],
+                "results": [],
+            }
 
         # Wipe every Lunch sitting on this date that belongs to one of our
         # kids, up front, before creating anything new. Deleting by prefix

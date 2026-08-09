@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from conftest import ENTREES, MENU_DATE, failing_db
 
 
@@ -204,6 +203,21 @@ class TestFailureReporting:
         pick(client, kid_ids["Parker"], ENTREES[0])
         app_module.send_day_to_skylight(MENU_DATE)
         assert skylight.closed is True
+
+    def test_list_sittings_failure_aborts_send(self, app_module, client, skylight, kid_ids):
+        """A list_sittings failure must abort, not silently create duplicates."""
+        pick(client, kid_ids["Parker"], ENTREES[0])
+
+        def _fail(*a, **kw):
+            raise RuntimeError("simulated list_sittings failure")
+
+        skylight.list_sittings = _fail
+        result = app_module.send_day_to_skylight(MENU_DATE)
+
+        assert result["ok"] is False
+        assert "list_sittings" in result["message"]
+        assert result["sent"] == 0
+        assert skylight.sittings == []
 
 
 class TestDatabaseFailureIsolation:
