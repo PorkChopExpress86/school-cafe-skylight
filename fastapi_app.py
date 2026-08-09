@@ -408,7 +408,7 @@ def select(
             kid=kid, menu_date=menu_date, item=item,
             selected=bool(is_selected), is_sent=is_sent,
         )
-        parts.append(f'<div id="{cell_id}" hx-swap-oob="true" class="text-center w-8">{cell_html}</div>')
+        parts.append(f'<div id="{cell_id}" hx-swap-oob="true" class="text-center min-w-20">{cell_html}</div>')
 
     return HTMLResponse("\n".join(parts))
 
