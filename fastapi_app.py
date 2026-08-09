@@ -817,7 +817,7 @@ def select(
 @app.post("/send-day", response_class=HTMLResponse)
 def send_day(request: Request, menu_date: Annotated[str, Form()]):
     """Send one day's selections to Skylight. One sitting per kid, overwriting."""
-    _parse_menu_date(menu_date)  # raises 400 on malformed dates
+    parsed_date = _parse_menu_date(menu_date)  # raises 400 on malformed dates
 
     try:
         result = send_day_to_skylight(menu_date)
@@ -825,6 +825,9 @@ def send_day(request: Request, menu_date: Annotated[str, Form()]):
         result = {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
 
     with get_db() as conn:
+        kids = conn.execute(
+            "SELECT id, name, color, prefix FROM kids ORDER BY id"
+        ).fetchall()
         sels = load_selections(conn, [menu_date])
         day_data = sels.get(menu_date, {})
         sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
@@ -845,8 +848,37 @@ def send_day(request: Request, menu_date: Annotated[str, Form()]):
         "result": result,
         "is_oob": False,
     })
+
+    # OOB update every cell for this day so the page reflects the sent
+    # state (double checkmark + greyed out) without a full page reload.
+    entree_descriptions = entrees_for_date(menu_date, parsed_date)
+    cell_template = templates.get_template("_cell.html")
+    parts: list[str] = [send_html]
+
+    for kid in kids:
+        current = day_data.get(kid["id"])
+        is_sent = bool(current and current["sent_sitting_id"])
+        selected_item = current["selection"] if current else None
+
+        for idx, item in enumerate(entree_descriptions, 1):
+            cell_id = f"cell-{menu_date}-{kid['id']}-{idx}"
+            parts.append(cell_template.render(
+                kid=kid, menu_date=menu_date, item=item,
+                selected=(selected_item == item),
+                is_sent=is_sent, cell_id=cell_id, is_oob=True,
+            ))
+
+        # The make-at-home cell.
+        cell_id = f"cell-{menu_date}-{kid['id']}-home"
+        parts.append(cell_template.render(
+            kid=kid, menu_date=menu_date, item=MAKE_AT_HOME,
+            selected=(selected_item == MAKE_AT_HOME),
+            is_sent=is_sent, cell_id=cell_id, is_oob=True,
+        ))
+
     history_html = templates.get_template("_history.html").render(history=history, is_oob=True)
-    return HTMLResponse(send_html + "\n" + history_html)
+    parts.append(history_html)
+    return HTMLResponse("\n".join(parts))
 
 
 @app.get("/health", response_class=HTMLResponse)

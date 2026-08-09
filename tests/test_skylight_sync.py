@@ -198,6 +198,21 @@ class TestFailureReporting:
         response = client.post("/send-day", data={"menu_date": MENU_DATE})
         assert "text-emerald-600" in response.text
 
+    def test_send_returns_oob_cells_reflecting_sent_state(self, client, skylight, kid_ids):
+        """After sending, the response must include OOB cell updates that
+        show the sent state (double checkmark) so the page matches the DB
+        without a full reload."""
+        kid = kid_ids["Parker"]
+        pick(client, kid, ENTREES[0])
+        response = client.post("/send-day", data={"menu_date": MENU_DATE})
+
+        # The selected entree's cell should be OOB-swapped with sent state.
+        cell_id = f"cell-{MENU_DATE}-{kid}-1"
+        assert f'id="{cell_id}"' in response.text
+        assert "hx-swap-oob" in response.text
+        # Double checkmark indicates sent state.
+        assert "&#10003;&#10003;" in response.text
+
     def test_the_client_is_always_closed(self, app_module, client, skylight, kid_ids):
         skylight.fail_create_recipe_for.add("P- Cheese Pizza")
         pick(client, kid_ids["Parker"], ENTREES[0])
