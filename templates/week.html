@@ -2,7 +2,7 @@
 
 {% block body %}
 <header>
-  <h1>School Lunch — week of {{ week[0].date.strftime('%b %d') if week else '?' }}</h1>
+  <h1>School Lunch - week of {{ week[0].date.strftime('%b %d') if week else '?' }}</h1>
   <nav>
     <a href="/?date={{ prev_week }}">&larr; Prev</a>
     <a href="/?date={{ today }}">This week</a>

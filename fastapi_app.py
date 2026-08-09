@@ -121,7 +121,7 @@ def skylight_config() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-app = FastAPI(title="School Lunch — Parker & Kylee", lifespan=lifespan)
+app = FastAPI(title="School Lunch - Parker & Kylee", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
@@ -213,7 +213,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"ok": False, "message": "Nothing checked for that day — nothing sent."}
+        return {"ok": False, "message": "Nothing checked for that day - nothing sent."}
 
     client = _skylight_login()
     try:
@@ -233,7 +233,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
             if row["sent_sitting_id"]:
                 skipped += 1
                 continue
-            summary = f"{row['kid_name']} — {row['item_text']}"
+            summary = f"{row['kid_name']} - {row['item_text']}"
             recipe = existing.get(summary.lower())
             if recipe is None:
                 try:

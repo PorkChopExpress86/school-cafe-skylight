@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skylight Calendar helper — login, list meal-plan data, and add meals.
+"""Skylight Calendar helper - login, list meal-plan data, and add meals.
 
 Reads credentials from a local `.env` file (see `.env.example`). The OAuth
 session token is cached by `pyskylight` at
