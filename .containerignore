@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.env.example
+__pycache__
+*.pyc
+*.pyo
+.playwright-mcp
+app.db
+Containerfile
+README.md
+playwright-mcp
