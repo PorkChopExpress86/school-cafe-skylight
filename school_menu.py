@@ -94,7 +94,8 @@ def extract_items(entries: Any) -> list[MenuItem]:
     """Flatten both API response shapes (list or sectioned dict) into a list of items.
 
     Preserves the category when the response is a sectioned dict (keyed by
-    category name like 'LUNCH ENTREE', 'FRUIT', 'MILK', etc.).
+    category name like 'LUNCH ENTREE', 'FRUIT', 'MILK', etc.). Skips the
+    API's "menu not published" placeholder strings.
     """
     out: list[MenuItem] = []
     if isinstance(entries, list):
@@ -102,7 +103,7 @@ def extract_items(entries: Any) -> list[MenuItem]:
             if isinstance(item, dict):
                 desc = str(item.get("MenuItemDescription", "")).strip()
                 cat = str(item.get("Category", "")).strip()
-                if desc:
+                if desc and "not been published" not in desc.lower():
                     out.append(MenuItem(description=desc, category=cat))
     elif isinstance(entries, dict):
         for section, section_items in entries.items():
@@ -111,7 +112,7 @@ def extract_items(entries: Any) -> list[MenuItem]:
             for item in section_items:
                 if isinstance(item, dict):
                     desc = str(item.get("MenuItemDescription", "")).strip()
-                    if desc:
+                    if desc and "not been published" not in desc.lower():
                         out.append(MenuItem(description=desc, category=section))
     return out
 
@@ -122,11 +123,16 @@ def get_weekly_items(config: SchoolCafeConfig, reference: date) -> list[DayMenu]
     Each DayMenu has a `date` and an `items` list. Days with no published menu
     still appear in the result with an empty `items` list, so callers can render
     a consistent Mon-Fri view.
+
+    The API returns keys starting at the ServingDate, so we always pass the
+    Monday of the target week as ServingDate to align the response keys with
+    the Mon-Fri lookup below.
     """
-    payload = fetch_weekly_menu(config, reference)
+    week_dates = get_week_dates(reference)
+    payload = fetch_weekly_menu(config, week_dates[0])
     return [
         DayMenu(date=d, items=extract_items(payload.get(date_key(d))))
-        for d in get_week_dates(reference)
+        for d in week_dates
     ]
 
 
