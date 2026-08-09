@@ -32,12 +32,14 @@ DEFAULT_KIDS = [
 
 @contextmanager
 def get_db(db_path: Path | None = None):
-    """Yield a configured SQLite connection with foreign keys and busy_timeout enabled."""
+    """Yield a configured SQLite connection with foreign keys, WAL mode, and busy_timeout enabled."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
     conn = sqlite3.connect(target_path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 10000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     try:
         yield conn
     finally:
@@ -123,7 +125,6 @@ def init_db(db_path: Path | None = None) -> None:
     """Initialize database schema, migrations, default kids, and menu tables."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
     with get_db(target_path) as conn:
-        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS kids (
@@ -260,11 +261,11 @@ def resolve_display_text(
 def fetch_all_overrides(db_path: Path | None = None) -> dict[str, str]:
     """Return {original_description: replacement_description} for all overrides."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
-    with sqlite3.connect(target_path) as conn:
+    with get_db(target_path) as conn:
         rows = conn.execute(
             "SELECT original_description, replacement_description FROM menu_item_overrides"
         ).fetchall()
-    return {orig: repl for orig, repl in rows}
+    return {r["original_description"]: r["replacement_description"] for r in rows}
 
 
 def set_menu_override(
@@ -279,7 +280,7 @@ def set_menu_override(
         return
     cased = format_menu_item(original)
     now = datetime.now().isoformat(timespec="seconds")
-    with sqlite3.connect(target_path) as conn:
+    with get_db(target_path) as conn:
         _init_menu_tables(conn)
         for key in {original, cased}:
             conn.execute(
@@ -301,7 +302,7 @@ def clear_menu_override(original: str, db_path: Path | None = None) -> None:
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
     original = original.strip()
     cased = format_menu_item(original)
-    with sqlite3.connect(target_path) as conn:
+    with get_db(target_path) as conn:
         _init_menu_tables(conn)
         conn.execute(
             "DELETE FROM menu_item_overrides WHERE original_description IN (?, ?)",
@@ -313,8 +314,7 @@ def clear_menu_override(original: str, db_path: Path | None = None) -> None:
 def fetch_recent_sync_attempts(db_path: Path | None = None, limit: int = 50) -> list[dict]:
     """Return most recent sync log entries, newest first."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
-    with sqlite3.connect(target_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db(target_path) as conn:
         rows = conn.execute(
             """
             SELECT attempted_at, succeeded, weeks_fetched, items_stored,
@@ -331,8 +331,7 @@ def fetch_recent_sync_attempts(db_path: Path | None = None, limit: int = 50) -> 
 def fetch_unique_menu_items(db_path: Path | None = None) -> list[dict]:
     """Return unique menu items grouped by description."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
-    with sqlite3.connect(target_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db(target_path) as conn:
         rows = conn.execute(
             """
             SELECT description, MAX(category) AS category, MAX(fetched_at) AS fetched_at
@@ -347,8 +346,7 @@ def fetch_unique_menu_items(db_path: Path | None = None) -> list[dict]:
 def fetch_menu_items(db_path: Path | None = None, week_start: str | None = None) -> list[dict]:
     """Return cached menu items, optionally filtered by `week_start`."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
-    with sqlite3.connect(target_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db(target_path) as conn:
         if week_start:
             rows = conn.execute(
                 """
@@ -373,7 +371,7 @@ def fetch_menu_items(db_path: Path | None = None, week_start: str | None = None)
 def fetch_distinct_weeks(db_path: Path | None = None) -> list[str]:
     """Return week-start dates for which we have cached menu items."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
-    with sqlite3.connect(target_path) as conn:
+    with get_db(target_path) as conn:
         rows = conn.execute(
             "SELECT DISTINCT week_start FROM menu_items ORDER BY week_start DESC"
         ).fetchall()
@@ -383,7 +381,7 @@ def fetch_distinct_weeks(db_path: Path | None = None) -> list[str]:
 def log_sync_attempt(db_path: Path | None, result: Any) -> None:
     """Insert one row into menu_sync_log."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
-    with sqlite3.connect(target_path) as conn:
+    with get_db(target_path) as conn:
         _init_menu_tables(conn)
         conn.execute(
             """

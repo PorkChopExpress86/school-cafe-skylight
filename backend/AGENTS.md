@@ -91,6 +91,7 @@ school-cafe-skylight/
 3. **Made test changes without first reading the test fixture.** `FakeSkylightClient` uses flat attributes.
 4. **Mounted static files BEFORE API routes.** Static mount at `/` must be registered LAST in FastAPI.
 5. **Direct string comparison on ALL-CAPS API descriptions.** Always use `resolve_display_text(text, overrides)` to bridge raw SchoolCafé descriptions, Title Case variants, and user permanent overrides across dashboard, API, and Skylight sync.
+6. **Mutated live production database in smoke tests.** Smoke test scripts hitting live server endpoints must record initial state and restore user selections upon completion to avoid overwriting active family data.
 
 ## Coding conventions
 

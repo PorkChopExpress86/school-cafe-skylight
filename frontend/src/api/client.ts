@@ -45,6 +45,13 @@ export function sendDay(menu_date: string): Promise<SendResult> {
   })
 }
 
+export function sendWeek(date: string): Promise<SendResult> {
+  return request<SendResult>("/api/send-week", {
+    method: "POST",
+    body: JSON.stringify({ date }),
+  })
+}
+
 export function getAdmin(): Promise<AdminResponse> {
   return request<AdminResponse>("/api/admin")
 }

@@ -31,7 +31,17 @@ def _skylight_login() -> SkylightClient:
     cfg = skylight_config()
     if not cfg["email"] or not cfg["password"]:
         raise RuntimeError("SKYLIGHT_EMAIL and SKYLIGHT_PASSWORD must be set in .env")
-    return SkylightClient.login(cfg["email"], cfg["password"], base_url=cfg["base_url"])
+    try:
+        return SkylightClient.login(cfg["email"], cfg["password"], base_url=cfg["base_url"])
+    except Exception:  # noqa: BLE001
+        # Clear stale cached token and retry fresh authentication
+        token_path = os.path.expanduser("~/.cache/pyskylight/token.json")
+        if os.path.exists(token_path):
+            try:
+                os.remove(token_path)
+            except Exception:  # noqa: BLE001
+                pass
+        return SkylightClient.login(cfg["email"], cfg["password"], base_url=cfg["base_url"])
 
 
 def _resolve_lunch_category_id(client: SkylightClient, frame_id: str) -> str | None:

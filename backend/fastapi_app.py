@@ -495,6 +495,203 @@ def api_send_day(req: SendDayRequest) -> dict:
     return result
 
 
+class SendWeekRequest(BaseModel):
+    date: str
+
+
+def send_week_to_skylight(ref: date_cls) -> dict:
+    """Sync an entire week's lunch selections to Skylight in a single login session."""
+    cfg = skylight_config()
+    if not cfg["frame_id"]:
+        return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
+
+    dates = [d.isoformat() for d in get_week_dates(ref)]
+    overrides = db.fetch_all_overrides(DB_PATH)
+
+    with get_db() as conn:
+        kids = conn.execute("SELECT id, name, prefix FROM kids ORDER BY id").fetchall()
+        if not kids:
+            return {"ok": False, "message": "No kids configured in database."}
+
+        for menu_date in dates:
+            for kid in kids:
+                conn.execute(
+                    """
+                    INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
+                    VALUES (?, ?, ?, NULL, NULL)
+                    ON CONFLICT(kid_id, menu_date) DO NOTHING
+                    """,
+                    (kid["id"], menu_date, MAKE_AT_HOME),
+                )
+        conn.commit()
+
+        kid_prefixes = {
+            (k["prefix"] or db._derive_kid_prefix(k["name"])).strip().lower() for k in kids
+        }
+        kid_names = {k["name"] for k in kids}
+
+    total_sent = 0
+    total_skipped = 0
+    total_deleted = 0
+    all_errors: list[str] = []
+    all_results: list[dict] = []
+    db_updates_by_date: dict[str, list[tuple[int, str | None]]] = {}
+
+    client = _skylight_login()
+    try:
+        lunch_id = _resolve_lunch_category_id(client, cfg["frame_id"])
+        if not lunch_id:
+            return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
+
+        all_recipes = client.list_recipes(cfg["frame_id"])
+        recipes_by_summary = {((r.summary or "").strip().lower()): r for r in all_recipes}
+        recipes_by_id = {str(r.id): r for r in all_recipes}
+
+        for menu_date in dates:
+            db_updates: list[tuple[int, str | None]] = []
+
+            with get_db() as conn:
+                rows = [
+                    dict(r)
+                    for r in conn.execute(
+                        """
+                        SELECT s.kid_id, s.selection, s.sent_sitting_id,
+                               k.name AS kid_name, k.prefix AS kid_prefix
+                        FROM selections s
+                        JOIN kids k ON k.id = s.kid_id
+                        WHERE s.menu_date = ?
+                        ORDER BY k.id
+                        """,
+                        (menu_date,),
+                    ).fetchall()
+                ]
+
+            try:
+                query_max = (date_cls.fromisoformat(menu_date) + timedelta(days=1)).isoformat()
+                skylight_sittings = client.list_sittings(
+                    cfg["frame_id"], date_min=menu_date, date_max=query_max
+                )
+                lunch_sittings = [
+                    s for s in skylight_sittings
+                    if str(getattr(s, "meal_category_id", "")) == str(lunch_id)
+                    and _sitting_falls_on_date(s, menu_date)
+                ]
+            except Exception as exc:  # noqa: BLE001
+                all_errors.append(f"list_sittings({menu_date}): {exc}")
+                continue
+
+            stale_sittings = [
+                s for s in lunch_sittings
+                if _sitting_matches_kid_prefixes(s, recipes_by_id, kid_prefixes, kid_names)
+            ]
+            for s in stale_sittings:
+                try:
+                    client.delete_sitting(cfg["frame_id"], str(s.id), menu_date)
+                    total_deleted += 1
+                except Exception as exc:  # noqa: BLE001
+                    all_errors.append(f"delete_sitting({menu_date}): {exc}")
+
+            for row in rows:
+                kid_name = row["kid_name"]
+                raw_selection = row["selection"]
+
+                if raw_selection == MAKE_AT_HOME:
+                    db_updates.append((row["kid_id"], None))
+                    total_skipped += 1
+                    all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": raw_selection, "status": "skipped"})
+                    continue
+
+                selection = db.resolve_display_text(raw_selection, overrides)
+                prefix = (row["kid_prefix"] or db._derive_kid_prefix(kid_name)).strip()
+                summary = _recipe_summary(prefix, selection)
+                recipe = recipes_by_summary.get(summary.lower())
+                if recipe is None:
+                    try:
+                        recipe = client.create_recipe(
+                            cfg["frame_id"],
+                            summary=summary,
+                            description=f"{selection} (from school menu)",
+                            meal_category_id=lunch_id,
+                        )
+                        recipes_by_summary[summary.lower()] = recipe
+                        recipes_by_id[str(recipe.id)] = recipe
+                    except Exception as exc:  # noqa: BLE001
+                        all_errors.append(f"create_recipe({summary!r}): {exc}")
+                        all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": selection, "status": "error"})
+                        continue
+
+                try:
+                    new_sitting = client.create_sitting(
+                        cfg["frame_id"],
+                        date=menu_date,
+                        meal_category_id=lunch_id,
+                        meal_recipe_id=str(recipe.id),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    all_errors.append(f"create_sitting({menu_date}, {summary!r}): {exc}")
+                    all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": selection, "status": "error"})
+                    continue
+
+                total_sent += 1
+                all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": selection, "status": "sent"})
+                db_updates.append((row["kid_id"], str(new_sitting.id)))
+
+            db_updates_by_date[menu_date] = db_updates
+    finally:
+        client.close()
+
+    now = datetime.now().isoformat(timespec="seconds")
+    with get_db() as conn:
+        for menu_date, updates in db_updates_by_date.items():
+            for kid_id, sitting_id in updates:
+                conn.execute(
+                    """
+                    UPDATE selections
+                    SET sent_at = ?, sent_sitting_id = ?
+                    WHERE kid_id = ? AND menu_date = ?
+                    """,
+                    (now, sitting_id, kid_id, menu_date),
+                )
+        for r in all_results:
+            if r["status"] == "sent":
+                log_history(conn, r["kid_name"], r["menu_date"], r["selection"], "Sent to Skylight (Week)")
+        conn.commit()
+
+        sels = load_selections(conn, dates)
+        history = fetch_recent_history(conn)
+        day_totals, day_sent = _compute_day_counts(sels, dates)
+
+    msg = f"Sent {total_sent} meals across {len(dates)} days to Skylight."
+    if total_deleted:
+        msg += f" Replaced {total_deleted} existing."
+    if total_skipped:
+        msg += f" {total_skipped} make-at-home."
+    if all_errors:
+        msg += " Errors: " + "; ".join(all_errors)
+
+    return {
+        "ok": not all_errors,
+        "message": msg,
+        "sent": total_sent,
+        "deleted": total_deleted,
+        "skipped": total_skipped,
+        "errors": all_errors,
+        "results": all_results,
+        "day_totals": day_totals,
+        "day_sent": day_sent,
+        "history": history,
+    }
+
+
+@app.post("/api/send-week")
+def api_send_week(req: SendWeekRequest) -> dict:
+    try:
+        ref = datetime.strptime(req.date, "%Y-%m-%d").date()
+    except ValueError:
+        ref = date_cls.today()
+    return send_week_to_skylight(ref)
+
+
 @app.get("/api/admin")
 def api_admin() -> dict:
     weeks = db.fetch_distinct_weeks(DB_PATH)

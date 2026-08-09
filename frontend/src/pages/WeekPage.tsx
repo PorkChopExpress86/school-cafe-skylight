@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Link } from "react-router-dom"
 import DaySection from "../components/DaySection"
 import HistoryPanel from "../components/HistoryPanel"
-import { useSelect, useSendDay, useWeek } from "../hooks/useApi"
+import { useSelect, useSendDay, useSendWeek, useWeek } from "../hooks/useApi"
 import type { SendResult } from "../types"
 
 export default function WeekPage() {
@@ -10,6 +10,7 @@ export default function WeekPage() {
   const { data, isLoading, error } = useWeek(date)
   const selectMutation = useSelect()
   const sendMutation = useSendDay()
+  const sendWeekMutation = useSendWeek()
   const [sendResults, setSendResults] = useState<Record<string, SendResult>>({})
 
   if (isLoading) {
@@ -81,10 +82,27 @@ export default function WeekPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between md:justify-end gap-3">
+          <div className="flex flex-wrap items-center justify-between md:justify-end gap-3">
             <span className="text-xs text-slate-400 hidden lg:inline font-medium">
               Week of <strong className="text-slate-200">{weekStartLabel}</strong>
             </span>
+            <button
+              onClick={() => sendWeekMutation.mutate(data.ref)}
+              disabled={sendWeekMutation.isPending}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border border-red-500/40 shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {sendWeekMutation.isPending ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  <span>Sending Week...</span>
+                </>
+              ) : (
+                <>
+                  <span>🗓️</span>
+                  <span>Send Week to Skylight</span>
+                </>
+              )}
+            </button>
             <nav className="flex items-center gap-2">
               <button
                 onClick={() => setDate(data.prev_week)}
@@ -109,8 +127,20 @@ export default function WeekPage() {
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+        {sendWeekMutation.data && (
+          <div
+            className={`p-4 rounded-xl border text-sm flex items-center gap-3 shadow-md ${
+              sendWeekMutation.data.ok
+                ? "bg-emerald-950/80 text-emerald-200 border-emerald-800/80"
+                : "bg-amber-950/80 text-amber-200 border-amber-800/80"
+            }`}
+          >
+            <span>{sendWeekMutation.data.ok ? "✅" : "⚠️"}</span>
+            <div>{sendWeekMutation.data.message}</div>
+          </div>
+        )}
+
         {!data.school_cfg && (
           <div className="p-4 rounded-xl bg-amber-950/70 text-amber-200 border border-amber-800/60 text-sm shadow-md flex items-center gap-3">
             <span className="text-xl">⚠️</span>
