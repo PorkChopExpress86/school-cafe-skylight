@@ -1,5 +1,7 @@
-{# Per-day send-to-Skylight button + status. Swapped in by HTMX. #}
-<div class="flex items-center gap-2">
+{# Per-day send-to-Skylight button + status. Swapped in by HTMX.
+   Carries its own id so that swapping it (as the target of /send-day, or
+   out-of-band from /select) preserves the anchor both paths depend on. #}
+<div id="send-{{ menu_date }}"{% if is_oob %} hx-swap-oob="true"{% endif %} class="flex items-center gap-2">
   <button
     type="button"
     hx-post="/send-day"

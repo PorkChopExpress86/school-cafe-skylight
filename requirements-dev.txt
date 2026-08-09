@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Test-only dependencies. The suite runs fully offline - no live SchoolCafe
+# or Skylight calls - so these are all that's needed to run `pytest`.
+pytest==9.1.1
+httpx==0.28.1

@@ -120,6 +120,11 @@ def extract_items(entries: Any) -> list[MenuItem]:
 def get_weekly_items(config: SchoolCafeConfig, reference: date) -> list[DayMenu]:
     """Fetch the SchoolCafé week containing `reference` and return a list of DayMenu.
 
+    This always hits the network. Callers that need caching should do it
+    themselves with a policy that suits them - `fastapi_app.fetch_week`
+    keeps a short-lived, week-keyed cache so a menu correction shows up
+    without restarting the server.
+
     Each DayMenu has a `date` and an `items` list. Days with no published menu
     still appear in the result with an empty `items` list, so callers can render
     a consistent Mon-Fri view.

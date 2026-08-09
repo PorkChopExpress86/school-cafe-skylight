@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# smoke_test.py is a manual check against a running server and a live menu;
+# it is deliberately not named test_*.py so pytest won't collect it.
+python_files = ["test_*.py"]
+addopts = "-q"

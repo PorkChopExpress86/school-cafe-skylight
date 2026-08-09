@@ -39,18 +39,19 @@
           {{ day.date.strftime('%A') }}
           <span class="text-slate-400 font-normal ml-2">{{ day.date.strftime('%b %d, %Y') }}</span>
         </h2>
-        <div id="send-{{ day_iso }}">
-          {% with menu_date=day_iso, total=day_totals.get(day_iso, 0), sent_count=day_sent.get(day_iso, 0), result=None %}
-            {% include "_send.html" %}
-          {% endwith %}
-        </div>
+        {% with menu_date=day_iso, total=day_totals.get(day_iso, 0), sent_count=day_sent.get(day_iso, 0), result=None, is_oob=false %}
+          {% include "_send.html" %}
+        {% endwith %}
       </div>
 
       {% if not day.entrees %}
       <div class="px-5 py-4 text-slate-400 italic text-sm">No entrees posted.</div>
       {% else %}
+      {# One flexible name column plus one auto column per kid, so adding a
+         kid widens the grid instead of overflowing it. #}
+      {% set grid_cols = "grid-template-columns: 1fr repeat(" ~ kids|length ~ ", auto)" %}
       <div class="p-5">
-        <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center pb-2 mb-1 border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+        <div class="grid gap-x-3 items-center pb-2 mb-1 border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wide" style="{{ grid_cols }}">
           <div>Entree</div>
           {% for kid in kids %}
           <div class="text-center min-w-20 whitespace-nowrap" style="color: {{ kid.color }}">{{ kid.name }}</div>
@@ -60,7 +61,7 @@
         {% for item in day.entrees %}
         {% set item_text = item.description %}
         {% set entree_idx = loop.index %}
-        <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-1.5 hover:bg-slate-50 rounded">
+        <div class="grid gap-x-3 items-center py-1.5 hover:bg-slate-50 rounded" style="{{ grid_cols }}">
           <div class="text-sm text-slate-700">{{ item_text }}</div>
           {% for kid in kids %}
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
@@ -74,7 +75,7 @@
         </div>
         {% endfor %}
 
-        <div class="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-1.5 mt-2 pt-2 border-t border-slate-200">
+        <div class="grid gap-x-3 items-center py-1.5 mt-2 pt-2 border-t border-slate-200" style="{{ grid_cols }}">
           <div class="text-sm text-emerald-700 font-medium">Make at home</div>
           {% for kid in kids %}
           {% set current = selections.get(day_iso, {}).get(kid.id) %}
@@ -92,6 +93,10 @@
     {% endfor %}
   </div>
   {% endif %}
+
+  {% with history=history, is_oob=false %}
+    {% include "_history.html" %}
+  {% endwith %}
 
   <footer class="mt-6 text-xs text-slate-400">
     <details>

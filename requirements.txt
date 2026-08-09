@@ -1,6 +1,9 @@
-fastapi
-uvicorn[standard]
-jinja2
-python-dotenv
-python-multipart
-git+https://github.com/joshuaswarren/pyskylight
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+jinja2==3.1.6
+python-dotenv==1.2.2
+python-multipart==0.0.32
+# Pinned to a commit rather than a branch: pyskylight is an unofficial,
+# reverse-engineered client, so an upstream push shouldn't be able to change
+# this app's behaviour without an explicit bump here.
+pyskylight @ git+https://github.com/joshuaswarren/pyskylight@69e4576b9035d71aacda9ade7a4afea05a663e94
