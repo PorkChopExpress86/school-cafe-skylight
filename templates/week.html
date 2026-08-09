@@ -28,40 +28,41 @@
 {% if week and kids %}
 <main>
   {% for day in week %}
+  {% set day_iso = day.date.isoformat() %}
   <section class="day">
     <div class="day-head">
       <h2>{{ day.date.strftime('%A') }} <small>{{ day.date.strftime('%b %d, %Y') }}</small></h2>
-      <div id="send-{{ day.date.isoformat() }}">
-        {% with menu_date=day.date.isoformat(),
-                eats_count=0,
-                sent_count=0,
-                result=None %}
+      <div id="send-{{ day_iso }}">
+        {% with menu_date=day_iso, eats_count=0, sent_count=0, result=None %}
           {% include "_send.html" %}
         {% endwith %}
       </div>
     </div>
 
-    {% if not day.items %}
-    <p class="muted">No menu posted.</p>
+    {% if not day.entrees %}
+    <p class="muted">No entrees posted.</p>
     {% else %}
     <table>
       <thead>
         <tr>
-          <th>Item</th>
+          <th>Entree</th>
           {% for kid in kids %}
           <th class="kid" style="--c: {{ kid.color }}">{{ kid.name }}</th>
           {% endfor %}
         </tr>
       </thead>
       <tbody>
-        {% for item in day.items %}
+        {% for item in day.entrees %}
+        {% set item_text = item.description %}
         <tr>
-          <td class="item">{{ item }}</td>
+          <td class="item">{{ item_text }}</td>
           {% for kid in kids %}
-            {% set checked = choices.get(day.date.isoformat(), {}).get(kid.id, {}).get(item, False) %}
-            {% set is_sent = sent.get(day.date.isoformat(), {}).get(kid.id, {}).get(item, False) %}
+            {% set checked = choices.get(day_iso, {}).get(kid.id, {}).get(item_text, False) %}
+            {% set is_sent = sent.get(day_iso, {}).get(kid.id, {}).get(item_text, False) %}
             <td class="check" style="--c: {{ kid.color }}">
-              {% include "_cell.html" %}
+              {% with menu_date=day_iso, kid=kid, item=item_text, checked=checked, is_sent=is_sent %}
+                {% include "_cell.html" %}
+              {% endwith %}
             </td>
           {% endfor %}
         </tr>

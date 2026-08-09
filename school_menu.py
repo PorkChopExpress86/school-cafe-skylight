@@ -66,35 +66,53 @@ def get_week_dates(reference: date) -> list[date]:
 
 
 @dataclass(frozen=True)
+class MenuItem:
+    """One menu item with its category (e.g. 'LUNCH ENTREE', 'FRUIT')."""
+
+    description: str
+    category: str = ""
+
+
+@dataclass(frozen=True)
 class DayMenu:
     """One day of menu items, normalized for easy UI consumption."""
 
     date: date
-    items: list[str]
+    items: list[MenuItem]
 
     @property
     def weekday(self) -> str:
         return self.date.strftime("%A")
 
+    @property
+    def entrees(self) -> list[MenuItem]:
+        """Only items in the LUNCH ENTREE / BREAKFAST ENTREE category."""
+        return [i for i in self.items if "ENTREE" in i.category.upper()]
 
-def extract_items(entries: Any) -> list[str]:
-    """Flatten both API response shapes (list or sectioned dict) into a list of items."""
-    out: list[str] = []
+
+def extract_items(entries: Any) -> list[MenuItem]:
+    """Flatten both API response shapes (list or sectioned dict) into a list of items.
+
+    Preserves the category when the response is a sectioned dict (keyed by
+    category name like 'LUNCH ENTREE', 'FRUIT', 'MILK', etc.).
+    """
+    out: list[MenuItem] = []
     if isinstance(entries, list):
         for item in entries:
             if isinstance(item, dict):
                 desc = str(item.get("MenuItemDescription", "")).strip()
+                cat = str(item.get("Category", "")).strip()
                 if desc:
-                    out.append(desc)
+                    out.append(MenuItem(description=desc, category=cat))
     elif isinstance(entries, dict):
-        for section_items in entries.values():
+        for section, section_items in entries.items():
             if not isinstance(section_items, list):
                 continue
             for item in section_items:
                 if isinstance(item, dict):
                     desc = str(item.get("MenuItemDescription", "")).strip()
                     if desc:
-                        out.append(desc)
+                        out.append(MenuItem(description=desc, category=section))
     return out
 
 
@@ -116,7 +134,7 @@ def format_day(entries: Any) -> str | None:
     items = extract_items(entries)
     if not items:
         return None
-    return "\n".join(f"  - {item.lower().title()}" for item in items)
+    return "\n".join(f"  - {item.description.lower().title()}" for item in items)
 
 
 def print_menu(
