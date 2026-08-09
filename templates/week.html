@@ -104,6 +104,7 @@
       <pre class="mt-2 p-3 bg-white rounded border border-slate-200">School: {{ school_cfg.school_id if school_cfg else 'unset' }} ({{ school_cfg.meal_type if school_cfg else '?' }})
 Skylight: {{ skylight_cfg.email or 'unset' }}{% if skylight_cfg.frame_id %} (frame {{ skylight_cfg.frame_id }}){% endif %}</pre>
     </details>
+    <a href="/admin" class="inline-block mt-2 hover:text-slate-600">Menu sync admin &rarr;</a>
   </footer>
 </div>
 {% endblock %}
