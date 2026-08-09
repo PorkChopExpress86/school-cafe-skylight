@@ -450,18 +450,38 @@ def _recipe_summary(prefix: str, item_text: str) -> str:
 
 
 def _sitting_matches_kid_prefixes(
-    sitting: Any, recipes_by_id: dict[str, Any], prefixes: set[str]
+    sitting: Any, recipes_by_id: dict[str, Any], prefixes: set[str], kid_names: set[str]
 ) -> bool:
-    """True if `sitting`'s linked recipe title starts with one of our kids'
-    prefixes (e.g. "P-", "K-") - i.e. this is a sitting the app itself could
-    have created for one of our kids, as opposed to anything else a family
-    member put on the calendar for that meal."""
+    """True if `sitting` belongs to one of our kids and should be wiped before
+    a fresh send.
+
+    A sitting is considered ours if any of these hold:
+    - Its linked recipe's summary starts with one of our kids' prefixes
+      (e.g. "P-", "K-") - this is what the app itself writes.
+    - Its linked recipe's summary contains one of our kids' full names.
+    - The sitting's own summary or note contains one of our kids' full names
+      (covers free-form sittings that were never linked to a recipe).
+
+    The name match catches sittings the app created before prefixes were
+    backfilled, and any sitting a family member manually added with the
+    kid's name in it.
+    """
     recipe_id = str(getattr(sitting, "meal_recipe_id", ""))
     recipe = recipes_by_id.get(recipe_id)
-    if not recipe:
-        return False
-    summary = (getattr(recipe, "summary", "") or "").strip().lower()
-    return any(summary.startswith(p) for p in prefixes)
+    if recipe:
+        summary = (getattr(recipe, "summary", "") or "").strip().lower()
+        if any(summary.startswith(p) for p in prefixes):
+            return True
+        if any(name.lower() in summary for name in kid_names):
+            return True
+
+    sitting_summary = (getattr(sitting, "summary", "") or "").strip().lower()
+    sitting_note = (getattr(sitting, "note", "") or "").strip().lower()
+    for name in kid_names:
+        nl = name.lower()
+        if nl in sitting_summary or nl in sitting_note:
+            return True
+    return False
 
 
 def send_day_to_skylight(menu_date: str) -> dict:
@@ -509,6 +529,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
         kid_prefixes = {
             (k["prefix"] or _derive_kid_prefix(k["name"])).strip().lower() for k in kids
         }
+        kid_names = {k["name"] for k in kids}
         rows = [
             dict(r)
             for r in conn.execute(
@@ -576,7 +597,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
         # send - not just the one whose selection changed.
         stale_sittings = [
             s for s in lunch_sittings
-            if _sitting_matches_kid_prefixes(s, recipes_by_id, kid_prefixes)
+            if _sitting_matches_kid_prefixes(s, recipes_by_id, kid_prefixes, kid_names)
         ]
         for s in stale_sittings:
             try:

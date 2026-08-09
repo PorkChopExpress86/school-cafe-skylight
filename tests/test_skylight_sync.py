@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import ENTREES, MENU_DATE, failing_db
+from conftest import ENTREES, MENU_DATE, FakeObj, failing_db
 
 
 def pick(client, kid_id, selection, menu_date=MENU_DATE):
@@ -118,6 +118,43 @@ class TestPrefixScopedWipe:
         app_module.send_day_to_skylight(MENU_DATE)
 
         assert skylight.summaries() == ["K- Hot Dog"]
+
+    def test_wipes_a_sitting_identified_by_kid_name_in_recipe(
+        self, app_module, client, skylight, kid_ids
+    ):
+        """A sitting whose recipe summary contains the kid's full name
+        (no prefix) should still be wiped on send."""
+        stray = skylight.seed("Parker Homemade Pasta", "cat-lunch")
+        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Kylee"], app_module.MAKE_AT_HOME)
+
+        result = app_module.send_day_to_skylight(MENU_DATE)
+
+        assert str(stray.id) in skylight.deleted_ids
+        assert result["deleted"] == 1
+
+    def test_wipes_a_free_form_sitting_with_kid_name(
+        self, app_module, client, skylight, kid_ids
+    ):
+        """A sitting with no linked recipe but a kid name in its summary
+        should still be wiped on send."""
+        skylight.seed("Some Generic Recipe", "cat-lunch")
+        stray = FakeObj(
+            id="stray-1",
+            meal_category_id="cat-lunch",
+            meal_recipe_id=None,
+            summary="Kylee Lunch",
+            note="",
+            instances=[MENU_DATE],
+        )
+        skylight.sittings.append(stray)
+        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Kylee"], app_module.MAKE_AT_HOME)
+
+        result = app_module.send_day_to_skylight(MENU_DATE)
+
+        assert "stray-1" in skylight.deleted_ids
+        assert result["deleted"] == 1
 
 
 class TestUnpickedKidsDefaultToMakeAtHome:
