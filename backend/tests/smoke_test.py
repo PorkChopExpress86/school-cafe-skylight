@@ -106,6 +106,12 @@ def main() -> int:
     if not entrees:
         print("  [SKIP] no entrees; skipping selection tests")
     else:
+        # --- Save initial selection to restore after testing ---
+        code_orig, week_orig = fetch_json(f"{base}/api/week?date={target_date}")
+        initial_selection = None
+        if code_orig == 200:
+            initial_selection = week_orig.get("selections", {}).get(target_date, {}).get(1, {}).get("selection")
+
         first_entree = entrees[0]
         print(f"\n[4] POST {base}/api/select (Parker -> {first_entree!r})")
         code, data = fetch_json(f"{base}/api/select", {
@@ -130,6 +136,12 @@ def main() -> int:
         if not assert_true(data.get("selection") == MAKE_AT_HOME,
                            "returns MAKE_AT_HOME selection"):
             failures += 1
+
+        # --- Restore initial selection ---
+        if initial_selection:
+            fetch_json(f"{base}/api/select", {
+                "kid_id": 1, "menu_date": target_date, "selection": initial_selection,
+            })
 
     # --- [6] GET /api/admin ---
     print(f"\n[6] GET {base}/api/admin")
