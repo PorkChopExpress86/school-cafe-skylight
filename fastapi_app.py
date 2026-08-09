@@ -761,7 +761,7 @@ def select(
         sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
         history = fetch_recent_history(conn)
 
-    is_sent = bool(current and current["sent_sitting_id"])
+    has_sent = bool(current and current["sent_sitting_id"])
 
     # Normally a cache hit from the page load that rendered these cells;
     # falls back to a live fetch (and [] if that fails) after a restart.
@@ -770,10 +770,12 @@ def select(
     cell_template = templates.get_template("_cell.html")
 
     def render_cell(item: str, cell_id: str, is_oob: bool) -> str:
+        is_selected = bool(current and current["selection"] == item)
         return cell_template.render(
             kid=kid, menu_date=menu_date, item=item,
-            selected=bool(current and current["selection"] == item),
-            is_sent=is_sent, cell_id=cell_id, is_oob=is_oob,
+            selected=is_selected,
+            is_sent=(is_selected and has_sent),
+            cell_id=cell_id, is_oob=is_oob,
         )
 
     all_items = entree_descriptions + [MAKE_AT_HOME]
@@ -857,23 +859,27 @@ def send_day(request: Request, menu_date: Annotated[str, Form()]):
 
     for kid in kids:
         current = day_data.get(kid["id"])
-        is_sent = bool(current and current["sent_sitting_id"])
+        has_sent = bool(current and current["sent_sitting_id"])
         selected_item = current["selection"] if current else None
 
         for idx, item in enumerate(entree_descriptions, 1):
             cell_id = f"cell-{menu_date}-{kid['id']}-{idx}"
+            is_selected = selected_item == item
             parts.append(cell_template.render(
                 kid=kid, menu_date=menu_date, item=item,
-                selected=(selected_item == item),
-                is_sent=is_sent, cell_id=cell_id, is_oob=True,
+                selected=is_selected,
+                is_sent=(is_selected and has_sent),
+                cell_id=cell_id, is_oob=True,
             ))
 
         # The make-at-home cell.
         cell_id = f"cell-{menu_date}-{kid['id']}-home"
+        is_selected = selected_item == MAKE_AT_HOME
         parts.append(cell_template.render(
             kid=kid, menu_date=menu_date, item=MAKE_AT_HOME,
-            selected=(selected_item == MAKE_AT_HOME),
-            is_sent=is_sent, cell_id=cell_id, is_oob=True,
+            selected=is_selected,
+            is_sent=(is_selected and has_sent),
+            cell_id=cell_id, is_oob=True,
         ))
 
     history_html = templates.get_template("_history.html").render(history=history, is_oob=True)
