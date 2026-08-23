@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import fastapi_app  # noqa: E402
 from school_menu import DayMenu, MenuItem, get_week_dates  # noqa: E402
+from skylight_adapter import SkylightCredentials  # noqa: E402
 
 # A Wednesday, so get_week_dates() yields a full Mon-Fri around it.
 MENU_DATE = "2026-08-12"
@@ -136,17 +137,16 @@ def app_module(tmp_path, monkeypatch):
     ]
     monkeypatch.setattr(fastapi_app, "fetch_week", lambda ref: (week, None))
     monkeypatch.setattr(fastapi_app, "school_config", lambda: None)
-    monkeypatch.setattr(
-        fastapi_app,
-        "skylight_config",
-        lambda: {
-            "email": "test@example.com",
-            "password": "secret",
-            "frame_id": "frame-1",
-            "timezone": "",
-            "base_url": "",
-        },
+    # Patch the credentials, not the published view: the published view is
+    # derived from them inside skylight_adapter, so a leak would show up here.
+    credentials = SkylightCredentials(
+        email="test@example.com",
+        password="secret",
+        frame_id="frame-1",
+        base_url="",
     )
+    monkeypatch.setattr(fastapi_app, "skylight_credentials", lambda: credentials)
+    monkeypatch.setattr(fastapi_app, "published_skylight_config", credentials.published)
     fastapi_app.init_db()
     return fastapi_app
 

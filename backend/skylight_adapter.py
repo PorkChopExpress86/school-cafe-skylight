@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from datetime import date as date_cls
 from datetime import timedelta
 from typing import Any
@@ -21,21 +22,52 @@ def _load_env() -> None:
         _env_loaded = True
 
 
-def skylight_config() -> dict[str, str]:
-    """Load Skylight configuration from the environment."""
+@dataclass(frozen=True)
+class SkylightCredentials:
+    """Everything needed to reach Skylight. Never leaves this module intact."""
+
+    email: str
+    password: str
+    frame_id: str
+    base_url: str
+
+    def published(self) -> dict[str, str]:
+        """The only Skylight configuration a route may return.
+
+        The password is deliberately absent: narrowing happens here rather
+        than at each call site, so no caller can widen it back.
+        """
+        return {"email": self.email, "frame_id": self.frame_id}
+
+
+def skylight_credentials() -> SkylightCredentials:
+    """Load Skylight credentials from the environment."""
     _load_env()
     from skylight_menu import load_config
 
-    return load_config()
+    cfg = load_config()
+    return SkylightCredentials(
+        email=cfg["email"],
+        password=cfg["password"],
+        frame_id=cfg["frame_id"],
+        base_url=cfg["base_url"],
+    )
+
+
+def published_skylight_config() -> dict[str, str]:
+    """Skylight configuration safe to put in an API response."""
+    return skylight_credentials().published()
 
 
 def skylight_login() -> SkylightClient:
     """Open a Skylight client, retrying once after a stale cached token."""
-    cfg = skylight_config()
-    if not cfg["email"] or not cfg["password"]:
+    credentials = skylight_credentials()
+    if not credentials.email or not credentials.password:
         raise RuntimeError("SKYLIGHT_EMAIL and SKYLIGHT_PASSWORD must be set in .env")
     try:
-        return SkylightClient.login(cfg["email"], cfg["password"], base_url=cfg["base_url"])
+        return SkylightClient.login(
+            credentials.email, credentials.password, base_url=credentials.base_url
+        )
     except Exception:  # noqa: BLE001
         token_path = os.path.expanduser("~/.cache/pyskylight/token.json")
         if os.path.exists(token_path):
@@ -43,7 +75,9 @@ def skylight_login() -> SkylightClient:
                 os.remove(token_path)
             except Exception:  # noqa: BLE001
                 pass
-        return SkylightClient.login(cfg["email"], cfg["password"], base_url=cfg["base_url"])
+        return SkylightClient.login(
+            credentials.email, credentials.password, base_url=credentials.base_url
+        )
 
 
 def _sitting_falls_on_date(sitting: Any, menu_date: str) -> bool:

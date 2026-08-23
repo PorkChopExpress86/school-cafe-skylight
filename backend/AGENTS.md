@@ -15,7 +15,7 @@ school-cafe-skylight/
 │   ├── db.py            ← SQLite database schema, connections, selections, overrides, sync logs
 │   ├── menu_service.py  ← SchoolCafé config, in-memory TTL caching, override resolution
 │   ├── meal_plan_publication.py ← Deep Meal-plan Publication workflow for day/week writes
-│   ├── skylight_adapter.py ← Skylight OAuth and pyskylight adapter
+│   ├── skylight_adapter.py ← Skylight credentials, OAuth, and the pyskylight adapter
 │   ├── school_menu.py   ← SchoolCafé client + case formatting (agy AI integration)
 │   ├── menu_sync.py     ← 4-week menu sync CLI + retry loop
 │   ├── skylight_menu.py ← Skylight config loader
@@ -80,6 +80,16 @@ school-cafe-skylight/
 - **422 "summary must be blank" rule:** When `meal_recipe_id` is set on a sitting POST, omit `summary` entirely.
 - **OAuth2 PKCE is the only working auth.**
 - **Cache & rate-limit politely:** pyskylight caches the Bearer token at `~/.cache/pyskylight/token.json`.
+
+## Skylight configuration seam (critical)
+
+`SkylightCredentials` (email, password, frame_id, base_url) is consumed only by
+`skylight_login`. Routes may return `published_skylight_config()` — derived from
+the credentials via `SkylightCredentials.published()`, which carries `email` and
+`frame_id` and nothing else. Never put a raw credentials object, or the dict from
+`skylight_menu.load_config()`, in an API response: the password used to ride along
+in every `/api/week` payload. Narrowing belongs in `skylight_adapter`, not at the
+call site, so tests patch `skylight_credentials` and let the published view derive.
 
 ## Pre-send wipe logic (critical)
 

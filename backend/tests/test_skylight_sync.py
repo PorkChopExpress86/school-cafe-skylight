@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from conftest import ENTREES, MENU_DATE, FakeObj
 
+from skylight_adapter import SkylightCredentials
+
 
 def pick(client, kid_id, selection, menu_date=MENU_DATE):
     response = client.post(
@@ -310,8 +312,8 @@ class TestConfigGuards:
     def test_missing_frame_id_is_reported_not_raised(self, app_module, monkeypatch):
         monkeypatch.setattr(
             app_module,
-            "skylight_config",
-            lambda: {"email": "e", "password": "p", "frame_id": "", "timezone": "", "base_url": ""},
+            "skylight_credentials",
+            lambda: SkylightCredentials(email="e", password="p", frame_id="", base_url=""),
         )
         result = app_module.send_day_to_skylight(MENU_DATE)
         assert result["ok"] is False

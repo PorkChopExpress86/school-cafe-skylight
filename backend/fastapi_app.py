@@ -30,7 +30,12 @@ from db import (
 from meal_plan_publication import DatePublicationOutcome, MealPlanPublisher, PublicationResult
 from menu_service import school_config
 from school_menu import get_week_dates
-from skylight_adapter import PyskylightAdapter, skylight_config, skylight_login
+from skylight_adapter import (
+    PyskylightAdapter,
+    published_skylight_config,
+    skylight_credentials,
+    skylight_login,
+)
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = db.DEFAULT_DB_PATH
@@ -189,12 +194,12 @@ def _day_publication_payload(outcome: DatePublicationOutcome) -> dict:
 
 def send_day_to_skylight(menu_date: str) -> dict:
     """Publish one date through the shared Meal-plan Publication seam."""
-    cfg = skylight_config()
-    if not cfg["frame_id"]:
+    credentials = skylight_credentials()
+    if not credentials.frame_id:
         return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
     publisher = MealPlanPublisher(
         DB_PATH,
-        lambda: PyskylightAdapter(_skylight_login(), cfg["frame_id"]),
+        lambda: PyskylightAdapter(_skylight_login(), credentials.frame_id),
     )
     result = publisher.publish([date_cls.fromisoformat(menu_date)])
     return _day_publication_payload(result.date_outcomes[0])
@@ -240,7 +245,7 @@ def _week_payload(ref: date_cls) -> dict:
         "next_week": (ref + timedelta(days=7)).isoformat(),
         "today": date_cls.today().isoformat(),
         "school_cfg": school_config(),
-        "skylight_cfg": skylight_config(),
+        "skylight_cfg": published_skylight_config(),
         "menu_error": err,
     }
 
@@ -413,13 +418,13 @@ def _week_publication_payload(result: PublicationResult, dates: list[str]) -> di
 
 def send_week_to_skylight(ref: date_cls) -> dict:
     """Publish one school week through the shared Meal-plan Publication seam."""
-    cfg = skylight_config()
-    if not cfg["frame_id"]:
+    credentials = skylight_credentials()
+    if not credentials.frame_id:
         return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
     publication_dates = get_week_dates(ref)
     publisher = MealPlanPublisher(
         DB_PATH,
-        lambda: PyskylightAdapter(_skylight_login(), cfg["frame_id"]),
+        lambda: PyskylightAdapter(_skylight_login(), credentials.frame_id),
     )
     result = publisher.publish(publication_dates)
     return _week_publication_payload(result, [value.isoformat() for value in publication_dates])
