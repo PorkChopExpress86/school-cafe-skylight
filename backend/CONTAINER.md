@@ -17,6 +17,10 @@ podman run -d \
   -v "$PWD/backend/.env:/app/.env:z" \
   -v "$PWD/backend/app.db:/app/app.db:z" \
   -v "$PWD/backend/fastapi_app.py:/app/fastapi_app.py:z" \
+  -v "$PWD/backend/db.py:/app/db.py:z" \
+  -v "$PWD/backend/menu_service.py:/app/menu_service.py:z" \
+  -v "$PWD/backend/meal_plan_publication.py:/app/meal_plan_publication.py:z" \
+  -v "$PWD/backend/skylight_adapter.py:/app/skylight_adapter.py:z" \
   -v "$PWD/backend/school_menu.py:/app/school_menu.py:z" \
   -v "$PWD/backend/skylight_menu.py:/app/skylight_menu.py:z" \
   -v "$PWD/backend/menu_sync.py:/app/menu_sync.py:z" \

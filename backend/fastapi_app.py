@@ -22,30 +22,25 @@ from pydantic import BaseModel
 
 import db
 import menu_service
-import skylight_service
 from db import (
-    DEFAULT_DB_PATH,
-    HISTORY_RETENTION,
-    MAKE_AT_HOME,
-    _backfill_kid_prefixes,
-    _derive_kid_prefix,
-    _unique_prefix,
     fetch_recent_history,
     load_selections,
     log_history,
 )
-from menu_service import _week_cache, school_config
+from meal_plan_publication import DatePublicationOutcome, MealPlanPublisher, PublicationResult
+from menu_service import school_config
 from school_menu import get_week_dates
-from skylight_service import (
-    _recipe_summary,
-    _resolve_lunch_category_id,
-    _sitting_falls_on_date,
-    _sitting_matches_kid_prefixes,
-    skylight_config,
-)
+from skylight_adapter import PyskylightAdapter, skylight_config, skylight_login
 
 APP_DIR = Path(__file__).resolve().parent
-DB_PATH = DEFAULT_DB_PATH
+DB_PATH = db.DEFAULT_DB_PATH
+
+# Compatibility exports retained for callers and existing route tests.
+HISTORY_RETENTION = db.HISTORY_RETENTION
+MAKE_AT_HOME = db.MAKE_AT_HOME
+_backfill_kid_prefixes = db._backfill_kid_prefixes
+_derive_kid_prefix = db._derive_kid_prefix
+_unique_prefix = db._unique_prefix
 
 # ---------------------------------------------------------------------------
 # Database & Lifespan
@@ -65,6 +60,7 @@ def init_db() -> None:
 async def _sunday_sync_scheduler():
     """Background task inside container: syncs 4 weeks of menus every Sunday at 3:00 AM."""
     import asyncio
+
     while True:
         try:
             await asyncio.sleep(600)  # Check every 10 minutes
@@ -76,6 +72,7 @@ async def _sunday_sync_scheduler():
                 today_iso = now.date().isoformat()
                 if not last_attempt.startswith(today_iso):
                     from menu_sync import _load_env_config, sync_menu
+
                     cfg = _load_env_config()
                     if cfg:
                         sync_menu(cfg, db_path=DB_PATH)
@@ -88,6 +85,7 @@ async def _sunday_sync_scheduler():
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     import asyncio
+
     init_db()
     task = asyncio.create_task(_sunday_sync_scheduler())
     try:
@@ -97,7 +95,7 @@ async def lifespan(_: FastAPI):
 
 
 def _skylight_login():
-    return skylight_service._skylight_login()
+    return skylight_login()
 
 
 def fetch_week(ref: date_cls):
@@ -117,9 +115,7 @@ def _parse_menu_date(menu_date: str) -> date_cls:
     try:
         return datetime.strptime(menu_date, "%Y-%m-%d").date()
     except ValueError:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid menu_date {menu_date!r}; expected YYYY-MM-DD."
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid menu_date {menu_date!r}; expected YYYY-MM-DD.")
 
 
 MAX_SELECTION_LEN = 200
@@ -130,9 +126,7 @@ def _sanitize_selection(selection: str) -> str:
     if not selection:
         raise HTTPException(status_code=400, detail="selection must not be empty.")
     if len(selection) > MAX_SELECTION_LEN:
-        raise HTTPException(
-            status_code=400, detail=f"selection too long (max {MAX_SELECTION_LEN} characters)."
-        )
+        raise HTTPException(status_code=400, detail=f"selection too long (max {MAX_SELECTION_LEN} characters).")
     if any(ord(c) < 0x20 for c in selection):
         raise HTTPException(status_code=400, detail="selection contains control characters.")
     return selection
@@ -150,180 +144,60 @@ def _compute_day_counts(
     return totals, sent
 
 
+def _publication_errors(outcome: DatePublicationOutcome) -> list[str]:
+    errors = [outcome.message] if outcome.message else []
+    errors.extend(
+        f"{kid.phase}({kid.kid_name}): {kid.message}"
+        for kid in outcome.kid_outcomes
+        if kid.status == "failed" and kid.message
+    )
+    return errors
+
+
+def _day_publication_payload(outcome: DatePublicationOutcome) -> dict:
+    sent = sum(kid.status == "published" for kid in outcome.kid_outcomes)
+    skipped = sum(kid.status == "make_at_home" for kid in outcome.kid_outcomes)
+    errors = _publication_errors(outcome)
+    message = f"Sent {sent} to Skylight for {outcome.menu_date}."
+    if outcome.deleted:
+        message += f" Replaced {outcome.deleted} existing."
+    if skipped:
+        message += f" {skipped} make-at-home (no sitting)."
+    if errors:
+        message += " Errors: " + "; ".join(errors)
+    return {
+        "ok": outcome.status == "published",
+        "message": message,
+        "sent": sent,
+        "deleted": outcome.deleted,
+        "skipped": skipped,
+        "errors": errors,
+        "results": [
+            {
+                "kid_name": kid.kid_name,
+                "selection": kid.selection,
+                "status": {
+                    "published": "sent",
+                    "make_at_home": "skipped",
+                    "failed": "error",
+                }[kid.status],
+            }
+            for kid in outcome.kid_outcomes
+        ],
+    }
+
+
 def send_day_to_skylight(menu_date: str) -> dict:
-    """Sync one day's lunch selections to Skylight calendar."""
+    """Publish one date through the shared Meal-plan Publication seam."""
     cfg = skylight_config()
     if not cfg["frame_id"]:
         return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
-
-    # Phase 1: DB query
-    with get_db() as conn:
-        kids = conn.execute("SELECT id, name, prefix FROM kids ORDER BY id").fetchall()
-        if not kids:
-            return {"ok": False, "message": "No kids configured in database."}
-
-        for kid in kids:
-            conn.execute(
-                """
-                INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
-                VALUES (?, ?, ?, NULL, NULL)
-                ON CONFLICT(kid_id, menu_date) DO NOTHING
-                """,
-                (kid["id"], menu_date, MAKE_AT_HOME),
-            )
-        conn.commit()
-
-        kid_prefixes = {
-            (k["prefix"] or db._derive_kid_prefix(k["name"])).strip().lower() for k in kids
-        }
-        kid_names = {k["name"] for k in kids}
-        rows = [
-            dict(r)
-            for r in conn.execute(
-                """
-                SELECT s.kid_id, s.selection, s.sent_sitting_id,
-                       k.name AS kid_name, k.prefix AS kid_prefix
-                FROM selections s
-                JOIN kids k ON k.id = s.kid_id
-                WHERE s.menu_date = ?
-                ORDER BY k.id
-                """,
-                (menu_date,),
-            ).fetchall()
-        ]
-
-    # Phase 2: Skylight network I/O
-    sent = 0
-    skipped = 0
-    deleted = 0
-    errors: list[str] = []
-    results: list[dict] = []
-    db_updates: list[tuple[int, str | None]] = []
-
-    client = _skylight_login()
-    try:
-        lunch_id = _resolve_lunch_category_id(client, cfg["frame_id"])
-        if not lunch_id:
-            return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
-
-        all_recipes = client.list_recipes(cfg["frame_id"])
-        recipes_by_summary = {(r.summary or "").strip(): r for r in all_recipes}
-        recipes_by_id = {str(r.id): r for r in all_recipes}
-
-        try:
-            query_max = (date_cls.fromisoformat(menu_date) + timedelta(days=1)).isoformat()
-            skylight_sittings = client.list_sittings(
-                cfg["frame_id"], date_min=menu_date, date_max=query_max
-            )
-            lunch_sittings = [
-                s for s in skylight_sittings
-                if str(getattr(s, "meal_category_id", "")) == str(lunch_id)
-                and _sitting_falls_on_date(s, menu_date)
-            ]
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "message": (
-                    f"Could not list existing sittings from Skylight for "
-                    f"{menu_date}: {exc}. Aborting to avoid creating "
-                    f"duplicate entries."
-                ),
-                "sent": 0,
-                "deleted": 0,
-                "skipped": 0,
-                "errors": [f"list_sittings({menu_date}): {exc}"],
-                "results": [],
-            }
-
-        stale_sittings = [
-            s for s in lunch_sittings
-            if _sitting_matches_kid_prefixes(s, recipes_by_id, kid_prefixes, kid_names)
-        ]
-        for s in stale_sittings:
-            try:
-                client.delete_sitting(cfg["frame_id"], str(s.id), menu_date)
-                deleted += 1
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"delete_sitting({menu_date}): {exc}")
-
-        overrides = db.fetch_all_overrides(DB_PATH)
-        for row in rows:
-            kid_name = row["kid_name"]
-            raw_selection = row["selection"]
-
-            if raw_selection == MAKE_AT_HOME:
-                db_updates.append((row["kid_id"], None))
-                skipped += 1
-                results.append({"kid_name": kid_name, "selection": raw_selection, "status": "skipped"})
-                continue
-
-            selection = db.resolve_display_text(raw_selection, overrides)
-            prefix = (row["kid_prefix"] or db._derive_kid_prefix(kid_name)).strip()
-            summary = _recipe_summary(prefix, selection)
-            recipe = recipes_by_summary.get(summary)
-            if recipe is None:
-                try:
-                    recipe = client.create_recipe(
-                        cfg["frame_id"],
-                        summary=summary,
-                        description=f"{selection} (from school menu)",
-                        meal_category_id=lunch_id,
-                    )
-                    recipes_by_summary[summary] = recipe
-                    recipes_by_id[str(recipe.id)] = recipe
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(f"create_recipe({summary!r}): {exc}")
-                    results.append({"kid_name": kid_name, "selection": selection, "status": "error"})
-                    continue
-
-            try:
-                new_sitting = client.create_sitting(
-                    cfg["frame_id"],
-                    date=menu_date,
-                    meal_category_id=lunch_id,
-                    meal_recipe_id=str(recipe.id),
-                )
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"create_sitting({menu_date}, {summary!r}): {exc}")
-                results.append({"kid_name": kid_name, "selection": selection, "status": "error"})
-                continue
-
-            sent += 1
-            results.append({"kid_name": kid_name, "selection": selection, "status": "sent"})
-            db_updates.append((row["kid_id"], str(new_sitting.id)))
-    finally:
-        client.close()
-
-    # Phase 3: DB updates
-    now_iso = datetime.now().isoformat(timespec="seconds")
-    with get_db() as conn:
-        for kid_id, sitting_id in db_updates:
-            try:
-                conn.execute(
-                    "UPDATE selections SET sent_at = ?, sent_sitting_id = ? "
-                    "WHERE kid_id = ? AND menu_date = ?",
-                    (now_iso, sitting_id, kid_id, menu_date),
-                )
-                conn.commit()
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"db update after create_sitting(kid {kid_id}): {exc}")
-
-    msg = f"Sent {sent} to Skylight for {menu_date}."
-    if deleted:
-        msg += f" Replaced {deleted} existing."
-    if skipped:
-        msg += f" {skipped} make-at-home (no sitting)."
-    if errors:
-        msg += " Errors: " + "; ".join(errors)
-    return {
-        "ok": not errors,
-        "message": msg,
-        "sent": sent,
-        "deleted": deleted,
-        "skipped": skipped,
-        "errors": errors,
-        "results": results,
-    }
+    publisher = MealPlanPublisher(
+        DB_PATH,
+        lambda: PyskylightAdapter(_skylight_login(), cfg["frame_id"]),
+    )
+    result = publisher.publish([date_cls.fromisoformat(menu_date)])
+    return _day_publication_payload(result.date_outcomes[0])
 
 
 def _week_payload(ref: date_cls) -> dict:
@@ -425,9 +299,7 @@ def api_select(req: SelectRequest) -> dict:
     selection = db.resolve_display_text(selection, overrides)
 
     with get_db() as conn:
-        kid = conn.execute(
-            "SELECT id, name, color, prefix FROM kids WHERE id = ?", (req.kid_id,)
-        ).fetchone()
+        kid = conn.execute("SELECT id, name, color, prefix FROM kids WHERE id = ?", (req.kid_id,)).fetchone()
         if kid is None:
             raise HTTPException(status_code=404, detail=f"Unknown kid_id {req.kid_id}.")
 
@@ -483,10 +355,6 @@ def api_send_day(req: SendDayRequest) -> dict:
         day_data = sels.get(req.menu_date, {})
         sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
         total = len(day_data)
-        for r in result.get("results", []):
-            if r["status"] == "sent":
-                log_history(conn, r["kid_name"], req.menu_date, r["selection"], "Sent to Skylight")
-        conn.commit()
         history = fetch_recent_history(conn)
 
     result["day_totals"] = {req.menu_date: total}
@@ -499,188 +367,62 @@ class SendWeekRequest(BaseModel):
     date: str
 
 
-def send_week_to_skylight(ref: date_cls) -> dict:
-    """Sync an entire week's lunch selections to Skylight in a single login session."""
-    cfg = skylight_config()
-    if not cfg["frame_id"]:
-        return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
-
-    dates = [d.isoformat() for d in get_week_dates(ref)]
-    overrides = db.fetch_all_overrides(DB_PATH)
-
-    with get_db() as conn:
-        kids = conn.execute("SELECT id, name, prefix FROM kids ORDER BY id").fetchall()
-        if not kids:
-            return {"ok": False, "message": "No kids configured in database."}
-
-        for menu_date in dates:
-            for kid in kids:
-                conn.execute(
-                    """
-                    INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
-                    VALUES (?, ?, ?, NULL, NULL)
-                    ON CONFLICT(kid_id, menu_date) DO NOTHING
-                    """,
-                    (kid["id"], menu_date, MAKE_AT_HOME),
-                )
-        conn.commit()
-
-        kid_prefixes = {
-            (k["prefix"] or db._derive_kid_prefix(k["name"])).strip().lower() for k in kids
+def _week_publication_payload(result: PublicationResult, dates: list[str]) -> dict:
+    sent = sum(kid.status == "published" for outcome in result.date_outcomes for kid in outcome.kid_outcomes)
+    skipped = sum(kid.status == "make_at_home" for outcome in result.date_outcomes for kid in outcome.kid_outcomes)
+    deleted = sum(outcome.deleted for outcome in result.date_outcomes)
+    errors = [error for outcome in result.date_outcomes for error in _publication_errors(outcome)]
+    results = [
+        {
+            "kid_name": kid.kid_name,
+            "menu_date": outcome.menu_date,
+            "selection": kid.selection,
+            "status": {
+                "published": "sent",
+                "make_at_home": "skipped",
+                "failed": "error",
+            }[kid.status],
         }
-        kid_names = {k["name"] for k in kids}
-
-    total_sent = 0
-    total_skipped = 0
-    total_deleted = 0
-    all_errors: list[str] = []
-    all_results: list[dict] = []
-    db_updates_by_date: dict[str, list[tuple[int, str | None]]] = {}
-
-    client = _skylight_login()
-    try:
-        lunch_id = _resolve_lunch_category_id(client, cfg["frame_id"])
-        if not lunch_id:
-            return {"ok": False, "message": "Could not find a 'Lunch' meal category on this Skylight frame."}
-
-        all_recipes = client.list_recipes(cfg["frame_id"])
-        recipes_by_summary = {(r.summary or "").strip(): r for r in all_recipes}
-        recipes_by_id = {str(r.id): r for r in all_recipes}
-
-        for menu_date in dates:
-            db_updates: list[tuple[int, str | None]] = []
-
-            with get_db() as conn:
-                rows = [
-                    dict(r)
-                    for r in conn.execute(
-                        """
-                        SELECT s.kid_id, s.selection, s.sent_sitting_id,
-                               k.name AS kid_name, k.prefix AS kid_prefix
-                        FROM selections s
-                        JOIN kids k ON k.id = s.kid_id
-                        WHERE s.menu_date = ?
-                        ORDER BY k.id
-                        """,
-                        (menu_date,),
-                    ).fetchall()
-                ]
-
-            try:
-                query_max = (date_cls.fromisoformat(menu_date) + timedelta(days=1)).isoformat()
-                skylight_sittings = client.list_sittings(
-                    cfg["frame_id"], date_min=menu_date, date_max=query_max
-                )
-                lunch_sittings = [
-                    s for s in skylight_sittings
-                    if str(getattr(s, "meal_category_id", "")) == str(lunch_id)
-                    and _sitting_falls_on_date(s, menu_date)
-                ]
-            except Exception as exc:  # noqa: BLE001
-                all_errors.append(f"list_sittings({menu_date}): {exc}")
-                continue
-
-            stale_sittings = [
-                s for s in lunch_sittings
-                if _sitting_matches_kid_prefixes(s, recipes_by_id, kid_prefixes, kid_names)
-            ]
-            for s in stale_sittings:
-                try:
-                    client.delete_sitting(cfg["frame_id"], str(s.id), menu_date)
-                    total_deleted += 1
-                except Exception as exc:  # noqa: BLE001
-                    all_errors.append(f"delete_sitting({menu_date}): {exc}")
-
-            for row in rows:
-                kid_name = row["kid_name"]
-                raw_selection = row["selection"]
-
-                if raw_selection == MAKE_AT_HOME:
-                    db_updates.append((row["kid_id"], None))
-                    total_skipped += 1
-                    all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": raw_selection, "status": "skipped"})
-                    continue
-
-                selection = db.resolve_display_text(raw_selection, overrides)
-                prefix = (row["kid_prefix"] or db._derive_kid_prefix(kid_name)).strip()
-                summary = _recipe_summary(prefix, selection)
-                recipe = recipes_by_summary.get(summary)
-                if recipe is None:
-                    try:
-                        recipe = client.create_recipe(
-                            cfg["frame_id"],
-                            summary=summary,
-                            description=f"{selection} (from school menu)",
-                            meal_category_id=lunch_id,
-                        )
-                        recipes_by_summary[summary] = recipe
-                        recipes_by_id[str(recipe.id)] = recipe
-                    except Exception as exc:  # noqa: BLE001
-                        all_errors.append(f"create_recipe({summary!r}): {exc}")
-                        all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": selection, "status": "error"})
-                        continue
-
-                try:
-                    new_sitting = client.create_sitting(
-                        cfg["frame_id"],
-                        date=menu_date,
-                        meal_category_id=lunch_id,
-                        meal_recipe_id=str(recipe.id),
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    all_errors.append(f"create_sitting({menu_date}, {summary!r}): {exc}")
-                    all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": selection, "status": "error"})
-                    continue
-
-                total_sent += 1
-                all_results.append({"kid_name": kid_name, "menu_date": menu_date, "selection": selection, "status": "sent"})
-                db_updates.append((row["kid_id"], str(new_sitting.id)))
-
-            db_updates_by_date[menu_date] = db_updates
-    finally:
-        client.close()
-
-    now = datetime.now().isoformat(timespec="seconds")
+        for outcome in result.date_outcomes
+        for kid in outcome.kid_outcomes
+    ]
     with get_db() as conn:
-        for menu_date, updates in db_updates_by_date.items():
-            for kid_id, sitting_id in updates:
-                conn.execute(
-                    """
-                    UPDATE selections
-                    SET sent_at = ?, sent_sitting_id = ?
-                    WHERE kid_id = ? AND menu_date = ?
-                    """,
-                    (now, sitting_id, kid_id, menu_date),
-                )
-        for r in all_results:
-            if r["status"] == "sent":
-                log_history(conn, r["kid_name"], r["menu_date"], r["selection"], "Sent to Skylight (Week)")
-        conn.commit()
-
-        sels = load_selections(conn, dates)
+        selections = load_selections(conn, dates)
         history = fetch_recent_history(conn)
-        day_totals, day_sent = _compute_day_counts(sels, dates)
-
-    msg = f"Sent {total_sent} meals across {len(dates)} days to Skylight."
-    if total_deleted:
-        msg += f" Replaced {total_deleted} existing."
-    if total_skipped:
-        msg += f" {total_skipped} make-at-home."
-    if all_errors:
-        msg += " Errors: " + "; ".join(all_errors)
-
+    day_totals, day_sent = _compute_day_counts(selections, dates)
+    message = f"Sent {sent} meals across {len(dates)} days to Skylight."
+    if deleted:
+        message += f" Replaced {deleted} existing."
+    if skipped:
+        message += f" {skipped} make-at-home."
+    if errors:
+        message += " Errors: " + "; ".join(errors)
     return {
-        "ok": not all_errors,
-        "message": msg,
-        "sent": total_sent,
-        "deleted": total_deleted,
-        "skipped": total_skipped,
-        "errors": all_errors,
-        "results": all_results,
+        "ok": result.ok,
+        "message": message,
+        "sent": sent,
+        "deleted": deleted,
+        "skipped": skipped,
+        "errors": errors,
+        "results": results,
         "day_totals": day_totals,
         "day_sent": day_sent,
         "history": history,
     }
+
+
+def send_week_to_skylight(ref: date_cls) -> dict:
+    """Publish one school week through the shared Meal-plan Publication seam."""
+    cfg = skylight_config()
+    if not cfg["frame_id"]:
+        return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
+    publication_dates = get_week_dates(ref)
+    publisher = MealPlanPublisher(
+        DB_PATH,
+        lambda: PyskylightAdapter(_skylight_login(), cfg["frame_id"]),
+    )
+    result = publisher.publish(publication_dates)
+    return _week_publication_payload(result, [value.isoformat() for value in publication_dates])
 
 
 @app.post("/api/send-week")
@@ -726,10 +468,7 @@ def api_admin_sync() -> dict:
         result = _sync_menu(config, db_path=DB_PATH)
         return {
             "ok": True,
-            "message": (
-                f"Synced {result.items_stored} items across "
-                f"{result.weeks_fetched} weeks."
-            ),
+            "message": (f"Synced {result.items_stored} items across {result.weeks_fetched} weeks."),
         }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": f"{type(exc).__name__}: {exc}"}

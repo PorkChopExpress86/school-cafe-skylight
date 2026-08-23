@@ -14,7 +14,8 @@ school-cafe-skylight/
 │   ├── fastapi_app.py   ← Lean API router & middleware
 │   ├── db.py            ← SQLite database schema, connections, selections, overrides, sync logs
 │   ├── menu_service.py  ← SchoolCafé config, in-memory TTL caching, override resolution
-│   ├── skylight_service.py ← Skylight OAuth login, recipe title formatting, sitting matching
+│   ├── meal_plan_publication.py ← Deep Meal-plan Publication workflow for day/week writes
+│   ├── skylight_adapter.py ← Skylight OAuth and pyskylight adapter
 │   ├── school_menu.py   ← SchoolCafé client + case formatting (agy AI integration)
 │   ├── menu_sync.py     ← 4-week menu sync CLI + retry loop
 │   ├── skylight_menu.py ← Skylight config loader
@@ -44,7 +45,7 @@ school-cafe-skylight/
 |--------|---------|
 | Run backend tests | `cd backend && python -m pytest tests/ -q` |
 | Lint backend | `cd backend && ruff check .` |
-| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py skylight_service.py school_menu.py menu_sync.py` |
+| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py meal_plan_publication.py skylight_adapter.py school_menu.py menu_sync.py` |
 | Build frontend & sync static | `cd frontend && npm run build` |
 | Frontend dev server | `cd frontend && npm run dev` |
 | Start container | `podman start school-cafe` (or `systemctl --user start school-cafe.service`) |
@@ -82,7 +83,7 @@ school-cafe-skylight/
 
 ## Pre-send wipe logic (critical)
 
-`send_day_to_skylight` deletes ALL Lunch sittings on the date that match a kid prefix or name BEFORE creating new ones (`_sitting_matches_kid_prefixes`).
+Meal-plan Publication deletes all Lunch sittings on the date that have a stored sitting identifier or an exact configured Kid prefix before creating new ones. Loose Kid-name matching is deliberately excluded because it can claim unrelated family entries.
 
 ## Mistakes I made repeatedly (don't repeat them)
 
@@ -97,7 +98,7 @@ school-cafe-skylight/
 
 - Use `from __future__ import annotations` at the top of every Python file.
 - Pin exact versions in `requirements.txt` and `requirements-dev.txt`.
-- Deep module design (`db.py`, `menu_service.py`, `skylight_service.py`) keeping router thin and domain logic isolated.
+- Deep module design (`db.py`, `menu_service.py`, `meal_plan_publication.py`) keeping router thin and domain logic isolated.
 - `# noqa: BLE001` is the standard way to justify `except Exception` on a network/DB call.
 - Three-phase design for DB and network I/O: read from DB, release connection, do I/O, reopen DB and write.
 
@@ -108,7 +109,8 @@ school-cafe-skylight/
 | API routes & app lifespan | `backend/fastapi_app.py` |
 | Database connections, schema & overrides | `backend/db.py` |
 | Menu caching & override resolution | `backend/menu_service.py` |
-| Skylight login & recipe formatting | `backend/skylight_service.py` |
+| Day/week Meal-plan Publication | `backend/meal_plan_publication.py` |
+| Skylight login & external adapter | `backend/skylight_adapter.py` |
 | SchoolCafé API client & agy AI casing | `backend/school_menu.py` |
 | 4-week menu sync CLI + retry loop | `backend/menu_sync.py` |
 | Skylight CLI helper | `backend/skylight_menu.py` |

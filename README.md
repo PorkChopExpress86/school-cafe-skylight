@@ -27,7 +27,8 @@ school-cafe-skylight/
 │   ├── fastapi_app.py        ← Router, endpoints & background lifespan scheduler
 │   ├── db.py                 ← SQLite schema, connections, overrides & sync logs
 │   ├── menu_service.py       ← SchoolCafé config, in-memory caching & override resolution
-│   ├── skylight_service.py    ← Skylight OAuth, recipe summary formatting & sitting matching
+│   ├── meal_plan_publication.py ← Shared day/week publication workflow
+│   ├── skylight_adapter.py     ← Skylight OAuth & pyskylight adapter
 │   ├── school_menu.py        ← SchoolCafé API client & agy AI title casing
 │   ├── menu_sync.py          ← 4-week menu sync CLI & retry loop
 │   ├── Containerfile         ← Production multi-stage Podman container definition
