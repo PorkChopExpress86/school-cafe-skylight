@@ -40,13 +40,6 @@ from skylight_adapter import (
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = db.DEFAULT_DB_PATH
 
-# Compatibility exports retained for callers and existing route tests.
-HISTORY_RETENTION = db.HISTORY_RETENTION
-MAKE_AT_HOME = db.MAKE_AT_HOME
-_backfill_kid_prefixes = db._backfill_kid_prefixes
-_derive_kid_prefix = db._derive_kid_prefix
-_unique_prefix = db._unique_prefix
-
 # ---------------------------------------------------------------------------
 # Database & Lifespan
 # ---------------------------------------------------------------------------

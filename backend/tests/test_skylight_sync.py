@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from conftest import ENTREES, MENU_DATE, FakeObj
 
+import db
+from db import MAKE_AT_HOME
 from skylight_adapter import SkylightCredentials
 
 
@@ -33,18 +35,18 @@ class TestKidPrefixes:
     )
     def test_derived_prefix_never_raises(self, app_module, name, expected):
         """An empty or punctuation-only name used to raise IndexError."""
-        assert app_module._derive_kid_prefix(name) == expected
+        assert db._derive_kid_prefix(name) == expected
 
     def test_prefixes_are_disambiguated(self, app_module):
-        assert app_module._unique_prefix("K-", set()) == "K-"
-        assert app_module._unique_prefix("K-", {"k-"}) == "K2-"
-        assert app_module._unique_prefix("K-", {"k-", "k2-"}) == "K3-"
+        assert db._unique_prefix("K-", set()) == "K-"
+        assert db._unique_prefix("K-", {"k-"}) == "K2-"
+        assert db._unique_prefix("K-", {"k-", "k2-"}) == "K3-"
 
     def test_backfill_gives_same_initial_kids_distinct_prefixes(self, app_module):
         with app_module.get_db() as conn:
             conn.execute("INSERT INTO kids (name, color, prefix) VALUES ('Kyle', '#000', '')")
             conn.commit()
-            app_module._backfill_kid_prefixes(conn)
+            db._backfill_kid_prefixes(conn)
             conn.commit()
             rows = conn.execute("SELECT name, prefix FROM kids").fetchall()
         prefixes = [r["prefix"] for r in rows]
@@ -84,8 +86,8 @@ class TestPrefixScopedWipe:
     def test_cleans_up_an_untracked_prefixed_sitting(self, app_module, client, skylight, kid_ids):
         """A sitting the local DB has no record of is still ours to remove."""
         stray = skylight.seed("K- Leftover From Before", "cat-lunch")
-        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
-        pick(client, kid_ids["Kylee"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Parker"], MAKE_AT_HOME)
+        pick(client, kid_ids["Kylee"], MAKE_AT_HOME)
 
         result = app_module.send_day_to_skylight(MENU_DATE)
 
@@ -113,7 +115,7 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Kylee"], ENTREES[1])
         app_module.send_day_to_skylight(MENU_DATE)
 
-        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Parker"], MAKE_AT_HOME)
         app_module.send_day_to_skylight(MENU_DATE)
 
         assert skylight.summaries() == ["K- Hot Dog"]
@@ -121,8 +123,8 @@ class TestPrefixScopedWipe:
     def test_leaves_a_sitting_identified_only_by_kid_name_in_recipe(self, app_module, client, skylight, kid_ids):
         """Loose name matching must not claim an unrelated family entry."""
         stray = skylight.seed("Parker Homemade Pasta", "cat-lunch")
-        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
-        pick(client, kid_ids["Kylee"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Parker"], MAKE_AT_HOME)
+        pick(client, kid_ids["Kylee"], MAKE_AT_HOME)
 
         result = app_module.send_day_to_skylight(MENU_DATE)
 
@@ -141,8 +143,8 @@ class TestPrefixScopedWipe:
             instances=[MENU_DATE],
         )
         skylight.sittings.append(stray)
-        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
-        pick(client, kid_ids["Kylee"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Parker"], MAKE_AT_HOME)
+        pick(client, kid_ids["Kylee"], MAKE_AT_HOME)
 
         result = app_module.send_day_to_skylight(MENU_DATE)
 
@@ -189,7 +191,7 @@ class TestUnpickedKidsDefaultToMakeAtHome:
                 "SELECT selection FROM selections WHERE kid_id = ? AND menu_date = ?",
                 (kid_ids["Kylee"], MENU_DATE),
             ).fetchone()
-        assert row["selection"] == app_module.MAKE_AT_HOME
+        assert row["selection"] == MAKE_AT_HOME
 
 
 class TestFailureReporting:
@@ -207,7 +209,7 @@ class TestFailureReporting:
 
     def test_history_records_only_confirmed_sends(self, app_module, client, skylight, kid_ids):
         skylight.fail_create_recipe_for.add("K- Hot Dog")
-        pick(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        pick(client, kid_ids["Parker"], MAKE_AT_HOME)
         pick(client, kid_ids["Kylee"], ENTREES[1])
 
         send_day(client)

@@ -178,13 +178,9 @@ def log_history(
     menu_date: str,
     selection: str,
     action: str,
-    retention_limit: int | None = None,
+    retention_limit: int = HISTORY_RETENTION,
 ) -> None:
     """Record one activity row in selection_history and prune beyond history limit."""
-    if retention_limit is None:
-        import sys
-        app_mod = sys.modules.get("fastapi_app")
-        retention_limit = getattr(app_mod, "HISTORY_RETENTION", HISTORY_RETENTION)
     conn.execute(
         """
         INSERT INTO selection_history (kid_name, menu_date, selection, action, created_at)
