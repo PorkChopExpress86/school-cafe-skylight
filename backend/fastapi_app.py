@@ -28,6 +28,7 @@ from db import (
     log_history,
 )
 from meal_plan_publication import DatePublicationOutcome, MealPlanPublisher, PublicationResult
+from menu_casing import pin_display_overrides_for_all_items
 from menu_service import school_config
 from school_menu import get_week_dates
 from skylight_adapter import (
@@ -475,7 +476,7 @@ def api_admin_sync() -> dict:
 @app.post("/api/admin/llm-case-all")
 def api_admin_llm_case_all() -> dict:
     """Run all unique menu items through agy (gemini-3.6-flash-low) to generate permanent display overrides."""
-    return menu_service.recase_all_items_with_llm(DB_PATH)
+    return pin_display_overrides_for_all_items(DB_PATH)
 
 
 @app.get("/api/health")

@@ -2,8 +2,10 @@
 
 The rule that turns a stored description into display text used to exist in
 four places under three variants, so the entree a parent saw and the Skylight
-recipe summary written for it could disagree. These tests pin the single rule
-and the casing seam behind it.
+recipe summary written for it could disagree. These tests pin the single rule.
+
+The module is pure: no adapter, no cache, no subprocess. Casing via a
+language model is a separate concern tested in test_menu_casing.py.
 """
 
 from __future__ import annotations
@@ -12,20 +14,8 @@ from datetime import date
 
 import db
 import menu_service
-from menu_item_display import MenuItemDisplay, NoCasing
+from menu_item_display import MenuItemDisplay, cased_menu_item
 from school_menu import DayMenu, MenuItem
-
-
-class RecordingCasing:
-    """Casing adapter that answers from a script and records what it was asked."""
-
-    def __init__(self, answers: dict[str, str] | None = None) -> None:
-        self.answers = answers or {}
-        self.asked: list[str] = []
-
-    def suggest(self, text: str) -> str | None:
-        self.asked.append(text)
-        return self.answers.get(text)
 
 
 class TestDisplayRule:
@@ -51,6 +41,38 @@ class TestDisplayRule:
 
     def test_empty_text_is_returned_untouched(self):
         assert MenuItemDisplay({"": "x"}).display("") == ""
+
+
+class TestCasingRule:
+    """The casing pass alone: pure, deterministic, no adapter."""
+
+    def test_already_mixed_case_passes_through(self):
+        assert cased_menu_item("Hot Dog") == "Hot Dog"
+
+    def test_all_caps_is_title_cased(self):
+        assert cased_menu_item("HOT DOG") == "Hot Dog"
+
+    def test_acronyms_are_preserved(self):
+        assert cased_menu_item("BRISKET BBQ SANDWICH") == "Brisket BBQ Sandwich"
+        assert cased_menu_item("PB & J") == "PB & J"
+
+    def test_exception_words_get_their_canonical_casing(self):
+        assert cased_menu_item("MAC & CHEESE") == "Mac & Cheese"
+
+    def test_complex_items_get_the_same_simple_rules_as_any_other(self):
+        """No adapter is consulted; commas and clusters don't change the rule."""
+        assert (
+            cased_menu_item("CHIKN, RICE & BEANS, ROLL")
+            == "Chikn, Rice & Beans, Roll"
+        )
+
+    def test_empty_text_passes_through(self):
+        assert cased_menu_item("") == ""
+
+    def test_is_deterministic_with_no_shared_state(self):
+        first = cased_menu_item("HOT DOG")
+        second = MenuItemDisplay().cased("HOT DOG")
+        assert first == second == "Hot Dog"
 
 
 class TestPathsAgree:
@@ -82,48 +104,3 @@ class TestPathsAgree:
         ]
         from_selection = db.resolve_display_text("CHEESE PIZZA", self.OVERRIDES)
         assert from_admin == from_selection == "Cheese Pizza (Veggie)"
-
-
-class TestCasingSeam:
-    def test_mixed_case_text_never_reaches_the_casing_adapter(self):
-        casing = RecordingCasing()
-        assert MenuItemDisplay({}, casing=casing, cache={}).cased("Hot Dog") == "Hot Dog"
-        assert casing.asked == []
-
-    def test_items_of_only_short_words_never_reach_the_casing_adapter(self):
-        casing = RecordingCasing()
-        assert MenuItemDisplay({}, casing=casing, cache={}).cased("PB & J") == "PB & J"
-        assert casing.asked == []
-
-    def test_any_all_caps_word_of_three_letters_triggers_a_consultation(self):
-        """Pins the heuristic's real reach: it fires for almost every item.
-
-        The source is entirely ALL CAPS, so the "three consecutive uppercase
-        letters" rule matches any item containing a three-letter word. Carried
-        over unchanged from the previous implementation.
-        """
-        casing = RecordingCasing()
-        MenuItemDisplay({}, casing=casing, cache={}).cased("HOT DOG")
-        assert casing.asked == ["HOT DOG"]
-
-    def test_complex_items_are_put_to_the_casing_adapter(self):
-        casing = RecordingCasing({"CHIKN, RICE & BEANS": "Chikn, Rice & Beans"})
-        display = MenuItemDisplay({}, casing=casing, cache={})
-        assert display.cased("CHIKN, RICE & BEANS") == "Chikn, Rice & Beans"
-        assert casing.asked == ["CHIKN, RICE & BEANS"]
-
-    def test_a_silent_adapter_falls_back_to_the_simple_rules(self):
-        display = MenuItemDisplay({}, casing=NoCasing(), cache={})
-        assert display.cased("MAC & CHEESE, ROLL") == "Mac & Cheese, Roll"
-
-    def test_the_adapter_is_consulted_once_per_item(self):
-        casing = RecordingCasing({"CHIKN, RICE & BEANS": "Chikn, Rice & Beans"})
-        display = MenuItemDisplay({}, casing=casing, cache={})
-        display.cased("CHIKN, RICE & BEANS")
-        display.cased("CHIKN, RICE & BEANS")
-        assert casing.asked == ["CHIKN, RICE & BEANS"]
-
-    def test_bulk_recasing_asks_for_every_item_not_just_complex_ones(self):
-        casing = RecordingCasing()
-        MenuItemDisplay({}, casing=casing).suggest_casing("HOT DOG")
-        assert casing.asked == ["HOT DOG"]

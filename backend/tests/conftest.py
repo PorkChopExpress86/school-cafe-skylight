@@ -17,25 +17,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import fastapi_app  # noqa: E402
-import menu_item_display  # noqa: E402
 from school_menu import DayMenu, MenuItem, get_week_dates  # noqa: E402
 from skylight_adapter import SkylightCredentials  # noqa: E402
-
-
-@pytest.fixture(autouse=True)
-def offline_casing():
-    """No test shells out to the casing adapter, and none shares a cache.
-
-    Substituting NoCasing at the seam is what keeps the suite offline — the
-    production code has no idea it is running under pytest.
-    """
-    previous = menu_item_display.default_casing()
-    menu_item_display.set_default_casing(menu_item_display.NoCasing())
-    menu_item_display.reset_cache()
-    yield
-    menu_item_display.set_default_casing(previous)
-    menu_item_display.reset_cache()
-
 
 # A Wednesday, so get_week_dates() yields a full Mon-Fri around it.
 MENU_DATE = "2026-08-12"

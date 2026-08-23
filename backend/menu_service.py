@@ -133,31 +133,3 @@ def entrees_for_date(
             return [e.description for e in day.entrees]
     return []
 
-
-def recase_all_items_with_llm(db_path: Path | None = None) -> dict:
-    """Put every unique menu item to the casing adapter and pin the answers.
-
-    Unlike the per-item rule, this asks for every item rather than only the
-    ones the heuristic flags, so a parent can re-case the whole library at once.
-    """
-    from db import fetch_unique_menu_items, set_menu_override
-
-    display = MenuItemDisplay()
-    unique_items = fetch_unique_menu_items(db_path)
-    updated = 0
-    for item in unique_items:
-        orig = item["description"]
-        cased = display.suggest_casing(orig)
-        if cased and cased != orig:
-            set_menu_override(orig, cased, db_path)
-            updated += 1
-
-    return {
-        "ok": True,
-        "count": len(unique_items),
-        "updated": updated,
-        "message": (
-            f"Processed {len(unique_items)} unique items with Gemini 3.6 Flash. "
-            f"Updated {updated} display overrides."
-        ),
-    }
