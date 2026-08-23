@@ -19,6 +19,14 @@ _Avoid_: Sent Selection
 A Skylight Lunch entry managed by this planner for a Kid and date. Other family meal-plan entries are not owned by the planner.
 _Avoid_: Existing sitting, calendar item
 
+**Display Text**:
+The text a human sees for a stored menu description: an active Display Override on the raw text, else the cased text, else an Override on the cased text. One rule, resolved in one place, so the entree a Kid picked and the Skylight recipe summary written for it cannot disagree.
+_Avoid_: Formatted name, pretty text, title case
+
+**Display Override**:
+A permanent replacement a parent pins for one menu description. Stored under both the raw and the cased form of the description, so either spelling resolves.
+_Avoid_: Alias, rename
+
 **Meal-plan Publication**:
 The one-way replacement of Owned Skylight Sittings for requested dates from a frozen snapshot of current Selections. Local Selections are authoritative, and each date is isolated from failures on other dates.
 _Avoid_: Synchronization, send

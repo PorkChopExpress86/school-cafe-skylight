@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from menu_item_display import MenuItemDisplay, cased_menu_item
+
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "app.db"
 
@@ -235,23 +237,18 @@ def load_selections(
     return out
 
 
-from school_menu import format_menu_item
-
-
 def resolve_display_text(
     text: str, overrides: dict[str, str] | None = None, db_path: Path | None = None
 ) -> str:
-    """Resolve raw or ALL-CAPS menu text to its active display override or Title Case version."""
-    if not text or text == MAKE_AT_HOME:
-        return text
+    """Resolve a stored Selection to its display text.
+
+    A thin Selection-flavoured entry point onto the Menu Item Display module:
+    it knows the Make at Home sentinel is not a menu item, and where the
+    override table lives. The rule itself lives in menu_item_display.
+    """
     if overrides is None:
         overrides = fetch_all_overrides(db_path)
-    if text in overrides and overrides[text]:
-        return overrides[text]
-    cased = format_menu_item(text)
-    if cased in overrides and overrides[cased]:
-        return overrides[cased]
-    return cased
+    return MenuItemDisplay(overrides, passthrough=(MAKE_AT_HOME,)).display(text)
 
 
 def fetch_all_overrides(db_path: Path | None = None) -> dict[str, str]:
@@ -274,7 +271,7 @@ def set_menu_override(
     if not replacement:
         clear_menu_override(original, target_path)
         return
-    cased = format_menu_item(original)
+    cased = cased_menu_item(original)
     now = datetime.now().isoformat(timespec="seconds")
     with get_db(target_path) as conn:
         _init_menu_tables(conn)
@@ -297,7 +294,7 @@ def clear_menu_override(original: str, db_path: Path | None = None) -> None:
     """Remove override for `original` and its Title Case variant."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH
     original = original.strip()
-    cased = format_menu_item(original)
+    cased = cased_menu_item(original)
     with get_db(target_path) as conn:
         _init_menu_tables(conn)
         conn.execute(

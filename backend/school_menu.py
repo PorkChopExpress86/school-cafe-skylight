@@ -6,15 +6,17 @@ Usage:
     python school_menu.py --school-id 12345 --meal-type Breakfast
     python school_menu.py --school-id 12345 --date 2026-04-26 --save menu.json
 
-The script is dependency-free (stdlib only) and writes a formatted weekly
-menu (Mon-Fri) to stdout. With --save it also writes the raw JSON payload.
+The script uses no third-party packages and writes a formatted weekly menu
+(Mon-Fri) to stdout. With --save it also writes the raw JSON payload.
+
+Display casing is not this module's job: descriptions are handed to the Menu
+Item Display module on the way out.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -23,166 +25,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from menu_item_display import cased_menu_item
+
 BASE_URL = (
     "https://webapis.schoolcafe.com/api/CalendarView/GetWeeklyMenuitemsByGrade"
 )
-
-# Acronyms and abbreviations to preserve in title case.
-# SchoolCafé returns everything in ALL CAPS, so these are the tokens that
-# should stay uppercase when the rest of the item is normalized to Title Case.
-ACRONYMS: frozenset[str] = frozenset({
-    "BBQ",   # Barbeque
-    "PB",    # Peanut Butter
-    "PBJ",   # Peanut Butter & Jelly
-    "OG",    # Orange
-    "USDA",  # U.S. Department of Agriculture
-})
-
-# Words that have unusual capitalization in food-service nomenclature and
-# should NOT be lower-cased by Title Case (e.g. "Mac" in "Mac & Cheese").
-# Applied as a sanity pass after the simple title-case conversion.
-_TITLE_CASE_EXCEPTIONS: dict[str, str] = {
-    "mac": "Mac",   # Mac & Cheese
-    "nugget": "Nugget",
-    "chikn": "Chikn",
-    "rotini": "Rotini",
-    "pita": "Pita",
-}
-
-# Cache of all-caps source -> properly-cased display string.
-# Avoids re-querying the LLM for the same item every time the menu loads.
-_case_cache: dict[str, str] = {}
-
-
-def _title_case_simple(text: str) -> str:
-    """Convert ALL CAPS to Title Case, preserving acronyms and punctuation.
-
-    Splits on whitespace, capitalizes each word unless it's a known acronym,
-    then re-joins. Punctuation (commas, &, parentheses) is preserved as-is.
-    """
-    words = text.split()
-    out: list[str] = []
-    for word in words:
-        # Strip punctuation for the acronym lookup, keep it for output.
-        stripped = word.strip(".,;:!?'\"()[]/")
-        if stripped.upper() in ACRONYMS:
-            out.append(word.replace(stripped, stripped.upper()))
-        else:
-            # Lower-case then capitalize to handle things like "McDONALD'S"
-            lower = word.lower()
-            out.append(lower.capitalize())
-    return " ".join(out)
-
-
-def _apply_title_case_exceptions(text: str) -> str:
-    """Apply per-word capitalization overrides for known food terms.
-
-    Only touches words that appear as standalone tokens (not inside other
-    words), so "Mac" overrides apply to "Mac & Cheese" but not to "Macaroni".
-    """
-    for word, replacement in _TITLE_CASE_EXCEPTIONS.items():
-        text = re.sub(rf"(?<![A-Za-z]){word}(?![A-Za-z])", replacement, text, flags=re.IGNORECASE)
-    return text
-
-
-def _needs_llm_lookup(text: str) -> bool:
-    """True if the item is complex enough to warrant an LLM consultation.
-
-    Heuristic: items with commas (multi-part descriptions), semicolons,
-    or unusual compound words (two or more consecutive multi-letter caps
-    clusters) are sent to the LLM.
-    """
-    if "," in text or ";" in text:
-        return True
-    # Three or more consecutive uppercase letters inside the string
-    # (not just leading caps) suggests a brand name or acronym mid-word.
-    if re.search(r"[A-Z]{3,}", text[1:]):
-        return True
-    return False
-
-
-def _query_llm_for_case(text: str) -> str | None:
-    """Look up proper case formatting for a complex menu item via agy CLI using gemini-3.6-flash-low.
-
-    Returns the LLM-suggested case, or None if the query fails or times out
-    (caller falls back to simple title case).
-    """
-    import os
-    import shutil
-    import subprocess
-
-    if os.environ.get("PYTEST_CURRENT_TEST"):
-        return None
-
-    agy_bin = shutil.which("agy") or os.path.expanduser("~/.local/bin/agy")
-    if not os.path.exists(agy_bin) and not shutil.which("agy"):
-        return None
-
-    prompt = (
-        "Convert this ALL-CAPS school menu item description to Title Case "
-        "food-service display format (return ONLY the converted string, no extra punctuation or quotes):\n"
-        f"{text}"
-    )
-    cmd = [
-        agy_bin,
-        "-p",
-        prompt,
-        "--model",
-        "gemini-3.6-flash-low",
-        "--disable-slash-commands",
-    ]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        if res.returncode == 0:
-            cleaned = res.stdout.strip().strip('"\'')
-            if cleaned and len(cleaned) < len(text) * 2:
-                return cleaned
-    except Exception:  # noqa: BLE001
-        pass
-    return None
-
-
-def format_menu_item(text: str) -> str:
-    """Convert an ALL CAPS menu item description to proper Title Case.
-
-    The SchoolCafé API returns every menu item in ALL CAPS (e.g.
-    "BRISKET BBQ SANDWICH"). Display, storage, and Skylight sync all
-    expect Title Case ("Brisket BBQ Sandwich").
-
-    Rules:
-      - Already mixed-case text is returned as-is (idempotent).
-      - ALL CAPS text is converted to Title Case.
-      - Known acronyms (BBQ, PB, PBJ, OG, USDA) are preserved uppercase.
-      - Known food terms (Mac, Rotini, etc.) get their canonical casing.
-      - Complex items (commas, semicolons, unusual caps clusters) are
-        sent to the LLM on first appearance; the result is cached.
-
-    The cache is per-process and not persisted — the LLM is only consulted
-    once per unique all-caps item per server lifetime.
-    """
-    if not text:
-        return text
-    if not text.isupper():
-        return text
-
-    if text in _case_cache:
-        return _case_cache[text]
-
-    result = _title_case_simple(text)
-    result = _apply_title_case_exceptions(result)
-
-    if _needs_llm_lookup(text):
-        llm_result = _query_llm_for_case(text)
-        if llm_result:
-            result = llm_result
-
-    _case_cache[text] = result
-    return result
-
-
-def _reset_case_cache() -> None:
-    """Test helper: clear the case-formatting cache."""
-    _case_cache.clear()
 
 
 @dataclass(frozen=True)
@@ -255,8 +102,8 @@ def extract_items(entries: Any) -> list[MenuItem]:
     category name like 'LUNCH ENTREE', 'FRUIT', 'MILK', etc.). Skips the
     API's "menu not published" placeholder strings.
 
-    All-caps descriptions are normalized to Title Case via format_menu_item
-    so downstream code (UI, DB, Skylight sync) sees consistent casing.
+    All-caps descriptions are normalized to Title Case via the Menu Item
+    Display module so downstream code sees consistent casing.
     """
     out: list[MenuItem] = []
     if isinstance(entries, list):
@@ -265,7 +112,7 @@ def extract_items(entries: Any) -> list[MenuItem]:
                 desc = str(item.get("MenuItemDescription", "")).strip()
                 cat = str(item.get("Category", "")).strip()
                 if desc and "not been published" not in desc.lower():
-                    out.append(MenuItem(description=format_menu_item(desc), category=cat))
+                    out.append(MenuItem(description=cased_menu_item(desc), category=cat))
     elif isinstance(entries, dict):
         for section, section_items in entries.items():
             if not isinstance(section_items, list):
@@ -274,7 +121,7 @@ def extract_items(entries: Any) -> list[MenuItem]:
                 if isinstance(item, dict):
                     desc = str(item.get("MenuItemDescription", "")).strip()
                     if desc and "not been published" not in desc.lower():
-                        out.append(MenuItem(description=format_menu_item(desc), category=section))
+                        out.append(MenuItem(description=cased_menu_item(desc), category=section))
     return out
 
 
