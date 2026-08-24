@@ -20,7 +20,10 @@ podman run -d \
   -v "$PWD/backend/db.py:/app/db.py:z" \
   -v "$PWD/backend/menu_service.py:/app/menu_service.py:z" \
   -v "$PWD/backend/meal_plan_publication.py:/app/meal_plan_publication.py:z" \
+  -v "$PWD/backend/publication_control.py:/app/publication_control.py:z" \
   -v "$PWD/backend/skylight_adapter.py:/app/skylight_adapter.py:z" \
+  -v "$PWD/backend/menu_item_display.py:/app/menu_item_display.py:z" \
+  -v "$PWD/backend/menu_casing.py:/app/menu_casing.py:z" \
   -v "$PWD/backend/school_menu.py:/app/school_menu.py:z" \
   -v "$PWD/backend/skylight_menu.py:/app/skylight_menu.py:z" \
   -v "$PWD/backend/menu_sync.py:/app/menu_sync.py:z" \

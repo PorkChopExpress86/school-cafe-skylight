@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 from threading import Lock
@@ -69,6 +69,7 @@ class _SelectionSnapshot:
     kid_name: str
     kid_prefix: str
     menu_date: str
+    stored_selection: str
     selection: str
     sent_sitting_id: str | None
 
@@ -227,6 +228,7 @@ class MealPlanPublisher:
                         kid_name=row["kid_name"],
                         kid_prefix=(row["kid_prefix"] or db._derive_kid_prefix(row["kid_name"])).strip(),
                         menu_date=menu_date,
+                        stored_selection=row["selection"],
                         selection=db.resolve_display_text(row["selection"], overrides),
                         sent_sitting_id=row["sent_sitting_id"],
                     )
@@ -262,17 +264,32 @@ class MealPlanPublisher:
             summary = (recipe.summary or "").strip() if recipe is not None else ""
             if str(sitting.id) in owned_ids or summary.startswith(owned_prefixes):
                 owned_sittings.append(sitting)
-        deleted = 0
+        deleted_sitting_ids: list[str] = []
         for sitting in owned_sittings:
+            sitting_id = str(sitting.id)
             try:
-                adapter.delete_sitting(str(sitting.id), menu_date)
-                deleted += 1
+                adapter.delete_sitting(sitting_id, menu_date)
+                deleted_sitting_ids.append(sitting_id)
             except Exception as exc:  # noqa: BLE001
+                try:
+                    self._clear_removed_sitting_state(menu_date, deleted_sitting_ids)
+                except Exception as persistence_exc:  # noqa: BLE001
+                    return DatePublicationOutcome(
+                        menu_date=menu_date,
+                        status="partial",
+                        kid_outcomes=[],
+                        deleted=len(deleted_sitting_ids),
+                        phase="persistence",
+                        message=(
+                            f"Could not remove an Owned Skylight Sitting: {exc}; "
+                            f"could not persist successful removals: {persistence_exc}"
+                        ),
+                    )
                 return DatePublicationOutcome(
                     menu_date=menu_date,
                     status="blocked",
                     kid_outcomes=[],
-                    deleted=deleted,
+                    deleted=len(deleted_sitting_ids),
                     phase="removal",
                     message=f"Could not remove an Owned Skylight Sitting: {exc}",
                 )
@@ -338,38 +355,84 @@ class MealPlanPublisher:
             )
 
         try:
-            self._persist(menu_date, kid_outcomes)
+            persisted_kid_ids = self._persist(menu_date, kid_outcomes, snapshots)
         except Exception as exc:  # noqa: BLE001
             return DatePublicationOutcome(
                 menu_date=menu_date,
                 status="partial",
                 kid_outcomes=kid_outcomes,
-                deleted=deleted,
+                deleted=len(deleted_sitting_ids),
                 phase="persistence",
                 message=f"persistence({menu_date}): {exc}",
             )
+        changed_kid_ids = {outcome.kid_id for outcome in kid_outcomes} - persisted_kid_ids
+        if changed_kid_ids:
+            kid_outcomes = [
+                replace(
+                    outcome,
+                    status="failed",
+                    phase="concurrency",
+                    message="Selection changed while publication was in progress; it remains unpublished.",
+                )
+                if outcome.kid_id in changed_kid_ids
+                else outcome
+                for outcome in kid_outcomes
+            ]
         status = "published" if all(outcome.status != "failed" for outcome in kid_outcomes) else "partial"
         return DatePublicationOutcome(
             menu_date=menu_date,
             status=status,
             kid_outcomes=kid_outcomes,
-            deleted=deleted,
+            deleted=len(deleted_sitting_ids),
         )
 
-    def _persist(self, menu_date: str, outcomes: list[KidPublicationOutcome]) -> None:
+    def _clear_removed_sitting_state(self, menu_date: str, sitting_ids: list[str]) -> None:
+        """Clear sent state for removals that Skylight already confirmed."""
+        if not sitting_ids:
+            return
+        with db.get_db(self._db_path) as conn:
+            conn.executemany(
+                """
+                UPDATE selections
+                SET sent_at = NULL, sent_sitting_id = NULL
+                WHERE menu_date = ? AND sent_sitting_id = ?
+                """,
+                ((menu_date, sitting_id) for sitting_id in sitting_ids),
+            )
+            conn.commit()
+
+    def _persist(
+        self,
+        menu_date: str,
+        outcomes: list[KidPublicationOutcome],
+        snapshots: list[_SelectionSnapshot],
+    ) -> set[int]:
+        snapshots_by_kid = {snapshot.kid_id: snapshot for snapshot in snapshots}
+        persisted_kid_ids: set[int] = set()
         now = datetime.now().isoformat(timespec="seconds")
         with db.get_db(self._db_path) as conn:
             for outcome in outcomes:
+                snapshot = snapshots_by_kid[outcome.kid_id]
                 sent_at = now if outcome.status == "published" else None
-                conn.execute(
+                updated = conn.execute(
                     """
                     UPDATE selections
                     SET sent_at = ?, sent_sitting_id = ?
                     WHERE kid_id = ? AND menu_date = ?
+                      AND selection = ? AND sent_sitting_id IS ?
                     """,
-                    (sent_at, outcome.sitting_id, outcome.kid_id, menu_date),
+                    (
+                        sent_at,
+                        outcome.sitting_id,
+                        outcome.kid_id,
+                        menu_date,
+                        snapshot.stored_selection,
+                        snapshot.sent_sitting_id,
+                    ),
                 )
-                if outcome.status == "published":
+                if updated.rowcount:
+                    persisted_kid_ids.add(outcome.kid_id)
+                if outcome.status == "published" and updated.rowcount:
                     db.log_history(
                         conn,
                         outcome.kid_name,
@@ -378,3 +441,4 @@ class MealPlanPublisher:
                         "Sent to Skylight",
                     )
             conn.commit()
+        return persisted_kid_ids

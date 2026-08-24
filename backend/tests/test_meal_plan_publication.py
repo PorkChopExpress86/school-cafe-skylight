@@ -228,6 +228,93 @@ def test_removal_failure_blocks_new_sittings_for_that_date(tmp_path):
     assert skylight.summaries() == ["P- Old School Lunch"]
 
 
+def test_removal_failure_clears_only_successfully_removed_sitting_state(tmp_path):
+    db_path = tmp_path / "publication.db"
+    db.init_db(db_path)
+    skylight = InMemorySkylightAdapter()
+    skylight.seed("P- Old School Lunch", "2026-08-24")
+    parker_sitting_id = str(skylight.sittings[0].id)
+    skylight.seed("K- Old School Lunch", "2026-08-24")
+    kylee_sitting_id = str(skylight.sittings[1].id)
+    skylight.fail_delete_ids.add(kylee_sitting_id)
+
+    with db.get_db(db_path) as conn:
+        kids = {row["name"]: row["id"] for row in conn.execute("SELECT id, name FROM kids")}
+        conn.executemany(
+            """
+            INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (kids["Parker"], "2026-08-24", "Cheese Pizza", "2026-08-23T12:00:00", parker_sitting_id),
+                (kids["Kylee"], "2026-08-24", "Hot Dog", "2026-08-23T12:00:00", kylee_sitting_id),
+            ],
+        )
+        conn.commit()
+
+    result = MealPlanPublisher(db_path, lambda: skylight).publish([date(2026, 8, 24)])
+
+    assert (result.date_outcomes[0].status, result.date_outcomes[0].deleted) == ("blocked", 1)
+    with db.get_db(db_path) as conn:
+        rows = conn.execute(
+            "SELECT kid_id, sent_at, sent_sitting_id FROM selections WHERE menu_date = ? ORDER BY kid_id",
+            ("2026-08-24",),
+        ).fetchall()
+    assert [(row["sent_at"], row["sent_sitting_id"]) for row in rows] == [
+        (None, None),
+        ("2026-08-23T12:00:00", kylee_sitting_id),
+    ]
+    assert skylight.summaries() == ["K- Old School Lunch"]
+
+
+def test_concurrent_selection_change_is_not_marked_published_by_a_stale_snapshot(tmp_path):
+    db_path = tmp_path / "publication.db"
+    db.init_db(db_path)
+    skylight = InMemorySkylightAdapter()
+    skylight.seed("P- Cheese Pizza", "2026-08-24")
+    old_sitting_id = str(skylight.sittings[0].id)
+
+    with db.get_db(db_path) as conn:
+        parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (parker_id, "2026-08-24", "Cheese Pizza", "2026-08-23T12:00:00", old_sitting_id),
+        )
+        conn.commit()
+
+    def change_selection_after_snapshot(menu_date: str) -> None:
+        with db.get_db(db_path) as conn:
+            conn.execute(
+                """
+                UPDATE selections
+                SET selection = ?, sent_at = NULL, sent_sitting_id = NULL
+                WHERE menu_date = ?
+                """,
+                ("Hot Dog", menu_date),
+            )
+            conn.commit()
+
+    skylight.on_list_sittings = change_selection_after_snapshot
+    result = MealPlanPublisher(db_path, lambda: skylight).publish([date(2026, 8, 24)])
+
+    outcome = result.date_outcomes[0]
+    assert (outcome.status, outcome.kid_outcomes[0].status, outcome.kid_outcomes[0].phase) == (
+        "partial",
+        "failed",
+        "concurrency",
+    )
+    with db.get_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT selection, sent_at, sent_sitting_id FROM selections WHERE kid_id = ? AND menu_date = ?",
+            (parker_id, "2026-08-24"),
+        ).fetchone()
+    assert dict(row) == {"selection": "Hot Dog", "sent_at": None, "sent_sitting_id": None}
+    assert skylight.summaries() == ["P- Cheese Pizza"]
+
+
 def test_discovery_failure_is_isolated_to_one_date(tmp_path):
     db_path = tmp_path / "publication.db"
     db.init_db(db_path)

@@ -141,6 +141,14 @@ def _publication_errors(outcome: DatePublicationOutcome) -> list[str]:
     return errors
 
 
+def _legacy_kid_status(status: str) -> str:
+    return {
+        "published": "sent",
+        "make_at_home": "skipped",
+        "failed": "error",
+    }[status]
+
+
 def _day_publication_payload(outcome: DatePublicationOutcome) -> dict:
     sent = sum(kid.status == "published" for kid in outcome.kid_outcomes)
     skipped = sum(kid.status == "make_at_home" for kid in outcome.kid_outcomes)
@@ -163,11 +171,7 @@ def _day_publication_payload(outcome: DatePublicationOutcome) -> dict:
             {
                 "kid_name": kid.kid_name,
                 "selection": kid.selection,
-                "status": {
-                    "published": "sent",
-                    "make_at_home": "skipped",
-                    "failed": "error",
-                }[kid.status],
+                "status": _legacy_kid_status(kid.status),
             }
             for kid in outcome.kid_outcomes
         ],
@@ -372,11 +376,7 @@ def _week_publication_payload(controlled: PublicationControlResult) -> dict:
             "kid_name": kid.kid_name,
             "menu_date": outcome.menu_date,
             "selection": kid.selection,
-            "status": {
-                "published": "sent",
-                "make_at_home": "skipped",
-                "failed": "error",
-            }[kid.status],
+            "status": _legacy_kid_status(kid.status),
         }
         for outcome in result.date_outcomes
         for kid in outcome.kid_outcomes
