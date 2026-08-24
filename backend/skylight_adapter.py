@@ -59,6 +59,11 @@ def published_skylight_config() -> dict[str, str]:
     return skylight_credentials().published()
 
 
+def skylight_frame_id() -> str:
+    """Return the configured frame identifier without exposing credentials."""
+    return skylight_credentials().frame_id
+
+
 def skylight_login() -> SkylightClient:
     """Open a Skylight client, retrying once after a stale cached token."""
     credentials = skylight_credentials()

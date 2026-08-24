@@ -83,11 +83,9 @@ def apply_overrides_to_items(
 def apply_overrides_to_week(
     week: list[Any], overrides: dict[str, str] | None = None, db_path: Path | None = None
 ) -> list[Any]:
-    """Return a copy of a fetched week (list of DayMenu) with display overrides applied."""
+    """Return a copy of a fetched week with current Display Text resolved."""
     if overrides is None:
         overrides = fetch_all_overrides(db_path)
-    if not overrides:
-        return week
 
     display = MenuItemDisplay(overrides)
     out: list[Any] = []
@@ -116,9 +114,11 @@ def fetch_week(
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
 
-    week = apply_overrides_to_week(week, None, db_path)
+    # Cache stable cased menu data; parent-controlled Display Overrides are
+    # resolved after every cache read so edits take effect immediately.
+    week = apply_overrides_to_week(week, {})
     _store_week(cfg, monday, week)
-    return week, None
+    return apply_overrides_to_week(week, None, db_path), None
 
 
 def entrees_for_date(

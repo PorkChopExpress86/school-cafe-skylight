@@ -27,14 +27,14 @@ from db import (
     load_selections,
     log_history,
 )
-from meal_plan_publication import DatePublicationOutcome, MealPlanPublisher, PublicationResult
+from meal_plan_publication import DatePublicationOutcome
 from menu_casing import pin_display_overrides_for_all_items
 from menu_service import school_config
+from publication_control import PublicationControl, PublicationControlResult, compute_day_counts
 from school_menu import get_week_dates
 from skylight_adapter import (
-    PyskylightAdapter,
     published_skylight_config,
-    skylight_credentials,
+    skylight_frame_id,
     skylight_login,
 )
 
@@ -131,18 +131,6 @@ def _sanitize_selection(selection: str) -> str:
     return selection
 
 
-def _compute_day_counts(
-    selections: dict[str, dict[int, dict]], dates: list[str]
-) -> tuple[dict[str, int], dict[str, int]]:
-    totals: dict[str, int] = {}
-    sent: dict[str, int] = {}
-    for d in dates:
-        day = selections.get(d, {})
-        totals[d] = len(day)
-        sent[d] = sum(1 for v in day.values() if v["sent_sitting_id"])
-    return totals, sent
-
-
 def _publication_errors(outcome: DatePublicationOutcome) -> list[str]:
     errors = [outcome.message] if outcome.message else []
     errors.extend(
@@ -188,15 +176,17 @@ def _day_publication_payload(outcome: DatePublicationOutcome) -> dict:
 
 def send_day_to_skylight(menu_date: str) -> dict:
     """Publish one date through the shared Meal-plan Publication seam."""
-    credentials = skylight_credentials()
-    if not credentials.frame_id:
-        return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
-    publisher = MealPlanPublisher(
-        DB_PATH,
-        lambda: PyskylightAdapter(_skylight_login(), credentials.frame_id),
-    )
-    result = publisher.publish([date_cls.fromisoformat(menu_date)])
-    return _day_publication_payload(result.date_outcomes[0])
+    control = PublicationControl(DB_PATH, skylight_frame_id, _skylight_login)
+    controlled = control.publish([date_cls.fromisoformat(menu_date)])
+    if controlled.error:
+        payload = {"ok": False, "message": controlled.error}
+    else:
+        assert controlled.publication is not None
+        payload = _day_publication_payload(controlled.publication.date_outcomes[0])
+    payload["day_totals"] = controlled.day_totals
+    payload["day_sent"] = controlled.day_sent
+    payload["history"] = controlled.history
+    return payload
 
 
 def _week_payload(ref: date_cls) -> dict:
@@ -218,7 +208,7 @@ def _week_payload(ref: date_cls) -> dict:
         if h.get("selection"):
             h["selection"] = db.resolve_display_text(h["selection"], overrides)
 
-    day_totals, day_sent = _compute_day_counts(selections, dates)
+    day_totals, day_sent = compute_day_counts(selections, dates)
 
     return {
         "week": [
@@ -349,6 +339,9 @@ def api_send_day(req: SendDayRequest) -> dict:
     except Exception as exc:  # noqa: BLE001
         result = {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
 
+    if "day_totals" in result:
+        return result
+
     with get_db() as conn:
         sels = load_selections(conn, [req.menu_date])
         day_data = sels.get(req.menu_date, {})
@@ -366,7 +359,10 @@ class SendWeekRequest(BaseModel):
     date: str
 
 
-def _week_publication_payload(result: PublicationResult, dates: list[str]) -> dict:
+def _week_publication_payload(controlled: PublicationControlResult) -> dict:
+    assert controlled.publication is not None
+    result = controlled.publication
+    dates = [outcome.menu_date for outcome in result.date_outcomes]
     sent = sum(kid.status == "published" for outcome in result.date_outcomes for kid in outcome.kid_outcomes)
     skipped = sum(kid.status == "make_at_home" for outcome in result.date_outcomes for kid in outcome.kid_outcomes)
     deleted = sum(outcome.deleted for outcome in result.date_outcomes)
@@ -385,10 +381,6 @@ def _week_publication_payload(result: PublicationResult, dates: list[str]) -> di
         for outcome in result.date_outcomes
         for kid in outcome.kid_outcomes
     ]
-    with get_db() as conn:
-        selections = load_selections(conn, dates)
-        history = fetch_recent_history(conn)
-    day_totals, day_sent = _compute_day_counts(selections, dates)
     message = f"Sent {sent} meals across {len(dates)} days to Skylight."
     if deleted:
         message += f" Replaced {deleted} existing."
@@ -404,24 +396,20 @@ def _week_publication_payload(result: PublicationResult, dates: list[str]) -> di
         "skipped": skipped,
         "errors": errors,
         "results": results,
-        "day_totals": day_totals,
-        "day_sent": day_sent,
-        "history": history,
+        "day_totals": controlled.day_totals,
+        "day_sent": controlled.day_sent,
+        "history": controlled.history,
     }
 
 
 def send_week_to_skylight(ref: date_cls) -> dict:
     """Publish one school week through the shared Meal-plan Publication seam."""
-    credentials = skylight_credentials()
-    if not credentials.frame_id:
-        return {"ok": False, "message": "SKYLIGHT_FRAME_ID is not set in .env."}
     publication_dates = get_week_dates(ref)
-    publisher = MealPlanPublisher(
-        DB_PATH,
-        lambda: PyskylightAdapter(_skylight_login(), credentials.frame_id),
-    )
-    result = publisher.publish(publication_dates)
-    return _week_publication_payload(result, [value.isoformat() for value in publication_dates])
+    control = PublicationControl(DB_PATH, skylight_frame_id, _skylight_login)
+    controlled = control.publish(publication_dates)
+    if controlled.error:
+        return {"ok": False, "message": controlled.error}
+    return _week_publication_payload(controlled)
 
 
 @app.post("/api/send-week")
@@ -435,15 +423,21 @@ def api_send_week(req: SendWeekRequest) -> dict:
 
 @app.get("/api/admin")
 def api_admin() -> dict:
-    weeks = db.fetch_distinct_weeks(DB_PATH)
-    items = db.fetch_menu_items(DB_PATH)
+    items = db.fetch_unique_menu_items(DB_PATH)
     overrides = db.fetch_all_overrides(DB_PATH)
     items = menu_service.apply_overrides_to_items(items, overrides)
+    items.sort(key=lambda item: (item["display_description"], item["description"]))
+    items = [
+        {
+            "description": item["description"],
+            "category": item["category"],
+            "display_description": item["display_description"],
+        }
+        for item in items
+    ]
     attempts = db.fetch_recent_sync_attempts(DB_PATH, limit=50)
     return {
-        "weeks": weeks,
         "items": items,
-        "overrides": overrides,
         "attempts": attempts,
         "last_success": next((a for a in attempts if a["succeeded"]), None),
     }

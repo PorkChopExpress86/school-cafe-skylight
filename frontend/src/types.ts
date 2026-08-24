@@ -82,11 +82,8 @@ export interface SendResult {
 }
 
 export interface AdminItem {
-  menu_date: string
   description: string
   category: string
-  week_start: string
-  fetched_at: string
   display_description: string
 }
 
@@ -100,9 +97,7 @@ export interface SyncAttempt {
 }
 
 export interface AdminResponse {
-  weeks: string[]
   items: AdminItem[]
-  overrides: Record<string, string>
   attempts: SyncAttempt[]
   last_success: SyncAttempt | null
 }

@@ -15,6 +15,7 @@ school-cafe-skylight/
 │   ├── db.py            ← SQLite database schema, connections, selections, overrides, sync logs
 │   ├── menu_service.py  ← SchoolCafé config, in-memory TTL caching, override resolution
 │   ├── meal_plan_publication.py ← Deep Meal-plan Publication workflow for day/week writes
+│   ├── publication_control.py ← Route-facing publication configuration, adapter, and readback control
 │   ├── skylight_adapter.py ← Skylight credentials, OAuth, and the pyskylight adapter
 │   ├── school_menu.py   ← SchoolCafé client (fetch + parse only)
 │   ├── menu_item_display.py ← Display Text: overrides + casing (pure, no I/O)
@@ -47,7 +48,7 @@ school-cafe-skylight/
 |--------|---------|
 | Run backend tests | `cd backend && python -m pytest tests/ -q` |
 | Lint backend | `cd backend && ruff check .` |
-| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py meal_plan_publication.py skylight_adapter.py school_menu.py menu_sync.py menu_item_display.py menu_casing.py` |
+| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py meal_plan_publication.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_item_display.py menu_casing.py` |
 | Build frontend & sync static | `cd frontend && npm run build` |
 | Frontend dev server | `cd frontend && npm run dev` |
 | Start container | `podman start school-cafe` (or `systemctl --user start school-cafe.service`) |
@@ -61,7 +62,7 @@ school-cafe-skylight/
 | GET | `/api/week?date=YYYY-MM-DD` | Week view: menu, kids, selections, counts, history |
 | POST | `/api/select` | Set one kid's selection (JSON body: `{kid_id, menu_date, selection}`) |
 | POST | `/api/send-day` | Send a day to Skylight (JSON body: `{menu_date}`) |
-| GET | `/api/admin` | Admin data: cached items, overrides, sync history |
+| GET | `/api/admin` | Source-unique, Display Text-resolved catalog plus sync attempts and last success |
 | POST | `/api/admin/override` | Set/clear permanent display override (`{original, replacement}`) |
 | POST | `/api/admin/sync` | Trigger immediate 4-week menu sync |
 | POST | `/api/admin/llm-case-all` | Run all unique menu items through `agy` (`gemini-3.6-flash-low`) AI casing |
@@ -138,6 +139,7 @@ Meal-plan Publication deletes all Lunch sittings on the date that have a stored 
 | Database connections, schema & overrides | `backend/db.py` |
 | Menu caching & override resolution | `backend/menu_service.py` |
 | Day/week Meal-plan Publication | `backend/meal_plan_publication.py` |
+| Route-facing publication control | `backend/publication_control.py` |
 | Skylight login & external adapter | `backend/skylight_adapter.py` |
 | SchoolCafé API client & agy AI casing | `backend/school_menu.py` |
 | 4-week menu sync CLI + retry loop | `backend/menu_sync.py` |

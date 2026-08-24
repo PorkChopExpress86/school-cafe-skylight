@@ -137,15 +137,15 @@ def app_module(tmp_path, monkeypatch):
     ]
     monkeypatch.setattr(fastapi_app, "fetch_week", lambda ref: (week, None))
     monkeypatch.setattr(fastapi_app, "school_config", lambda: None)
-    # Patch the credentials, not the published view: the published view is
-    # derived from them inside skylight_adapter, so a leak would show up here.
+    # Patch the adapter's narrow providers: the published view is derived from
+    # credentials inside skylight_adapter, so a leak would show up here.
     credentials = SkylightCredentials(
         email="test@example.com",
         password="secret",
         frame_id="frame-1",
         base_url="",
     )
-    monkeypatch.setattr(fastapi_app, "skylight_credentials", lambda: credentials)
+    monkeypatch.setattr(fastapi_app, "skylight_frame_id", lambda: credentials.frame_id)
     monkeypatch.setattr(fastapi_app, "published_skylight_config", credentials.published)
     fastapi_app.init_db()
     return fastapi_app
