@@ -27,10 +27,9 @@ from db import (
     load_selections,
     log_history,
 )
-from meal_plan_publication import DatePublicationOutcome
 from menu_casing import pin_display_overrides_for_all_items
 from menu_service import school_config
-from publication_control import PublicationControl, PublicationControlResult, compute_day_counts
+from publication_control import PublicationControl, compute_day_counts
 from school_menu import get_week_dates
 from skylight_adapter import (
     published_skylight_config,
@@ -131,66 +130,10 @@ def _sanitize_selection(selection: str) -> str:
     return selection
 
 
-def _publication_errors(outcome: DatePublicationOutcome) -> list[str]:
-    errors = [outcome.message] if outcome.message else []
-    errors.extend(
-        f"{kid.phase}({kid.kid_name}): {kid.message}"
-        for kid in outcome.kid_outcomes
-        if kid.status == "failed" and kid.message
-    )
-    return errors
-
-
-def _legacy_kid_status(status: str) -> str:
-    return {
-        "published": "sent",
-        "make_at_home": "skipped",
-        "failed": "error",
-    }[status]
-
-
-def _day_publication_payload(outcome: DatePublicationOutcome) -> dict:
-    sent = sum(kid.status == "published" for kid in outcome.kid_outcomes)
-    skipped = sum(kid.status == "make_at_home" for kid in outcome.kid_outcomes)
-    errors = _publication_errors(outcome)
-    message = f"Sent {sent} to Skylight for {outcome.menu_date}."
-    if outcome.deleted:
-        message += f" Replaced {outcome.deleted} existing."
-    if skipped:
-        message += f" {skipped} make-at-home (no sitting)."
-    if errors:
-        message += " Errors: " + "; ".join(errors)
-    return {
-        "ok": outcome.status == "published",
-        "message": message,
-        "sent": sent,
-        "deleted": outcome.deleted,
-        "skipped": skipped,
-        "errors": errors,
-        "results": [
-            {
-                "kid_name": kid.kid_name,
-                "selection": kid.selection,
-                "status": _legacy_kid_status(kid.status),
-            }
-            for kid in outcome.kid_outcomes
-        ],
-    }
-
-
 def send_day_to_skylight(menu_date: str) -> dict:
     """Publish one date through the shared Meal-plan Publication seam."""
     control = PublicationControl(DB_PATH, skylight_frame_id, _skylight_login)
-    controlled = control.publish([date_cls.fromisoformat(menu_date)])
-    if controlled.error:
-        payload = {"ok": False, "message": controlled.error}
-    else:
-        assert controlled.publication is not None
-        payload = _day_publication_payload(controlled.publication.date_outcomes[0])
-    payload["day_totals"] = controlled.day_totals
-    payload["day_sent"] = controlled.day_sent
-    payload["history"] = controlled.history
-    return payload
+    return control.publish([date_cls.fromisoformat(menu_date)]).as_day_payload()
 
 
 def _week_payload(ref: date_cls) -> dict:
@@ -337,79 +280,18 @@ def api_select(req: SelectRequest) -> dict:
 @app.post("/api/send-day")
 def api_send_day(req: SendDayRequest) -> dict:
     _parse_menu_date(req.menu_date)
-
-    try:
-        result = send_day_to_skylight(req.menu_date)
-    except Exception as exc:  # noqa: BLE001
-        result = {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
-
-    if "day_totals" in result:
-        return result
-
-    with get_db() as conn:
-        sels = load_selections(conn, [req.menu_date])
-        day_data = sels.get(req.menu_date, {})
-        sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
-        total = len(day_data)
-        history = fetch_recent_history(conn)
-
-    result["day_totals"] = {req.menu_date: total}
-    result["day_sent"] = {req.menu_date: sent_count}
-    result["history"] = history
-    return result
+    return send_day_to_skylight(req.menu_date)
 
 
 class SendWeekRequest(BaseModel):
     date: str
 
 
-def _week_publication_payload(controlled: PublicationControlResult) -> dict:
-    assert controlled.publication is not None
-    result = controlled.publication
-    dates = [outcome.menu_date for outcome in result.date_outcomes]
-    sent = sum(kid.status == "published" for outcome in result.date_outcomes for kid in outcome.kid_outcomes)
-    skipped = sum(kid.status == "make_at_home" for outcome in result.date_outcomes for kid in outcome.kid_outcomes)
-    deleted = sum(outcome.deleted for outcome in result.date_outcomes)
-    errors = [error for outcome in result.date_outcomes for error in _publication_errors(outcome)]
-    results = [
-        {
-            "kid_name": kid.kid_name,
-            "menu_date": outcome.menu_date,
-            "selection": kid.selection,
-            "status": _legacy_kid_status(kid.status),
-        }
-        for outcome in result.date_outcomes
-        for kid in outcome.kid_outcomes
-    ]
-    message = f"Sent {sent} meals across {len(dates)} days to Skylight."
-    if deleted:
-        message += f" Replaced {deleted} existing."
-    if skipped:
-        message += f" {skipped} make-at-home."
-    if errors:
-        message += " Errors: " + "; ".join(errors)
-    return {
-        "ok": result.ok,
-        "message": message,
-        "sent": sent,
-        "deleted": deleted,
-        "skipped": skipped,
-        "errors": errors,
-        "results": results,
-        "day_totals": controlled.day_totals,
-        "day_sent": controlled.day_sent,
-        "history": controlled.history,
-    }
-
-
 def send_week_to_skylight(ref: date_cls) -> dict:
     """Publish one school week through the shared Meal-plan Publication seam."""
     publication_dates = get_week_dates(ref)
     control = PublicationControl(DB_PATH, skylight_frame_id, _skylight_login)
-    controlled = control.publish(publication_dates)
-    if controlled.error:
-        return {"ok": False, "message": controlled.error}
-    return _week_publication_payload(controlled)
+    return control.publish(publication_dates).as_week_payload()
 
 
 @app.post("/api/send-week")

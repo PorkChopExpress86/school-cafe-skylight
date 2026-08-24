@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import date
 
-import db
 from conftest import FakeSkylightClient
+
+import db
 from publication_control import PublicationControl
 
 
-def test_control_returns_publication_and_refreshed_readback(tmp_path):
+def test_control_returns_normalized_publication_and_refreshed_readback(tmp_path):
     db_path = tmp_path / "publication-control.db"
     db.init_db(db_path)
     with db.get_db(db_path) as conn:
@@ -24,11 +25,15 @@ def test_control_returns_publication_and_refreshed_readback(tmp_path):
     controlled = PublicationControl(db_path, lambda: "frame-1", lambda: client).publish([date(2026, 8, 24)])
 
     assert controlled.error is None
-    assert controlled.publication is not None
-    assert controlled.publication.date_outcomes[0].status == "published"
+    assert controlled.date_results[0].ok is True
+    assert [kid.status for kid in controlled.date_results[0].results] == ["sent", "skipped"]
     assert controlled.day_totals == {"2026-08-24": 2}
     assert controlled.day_sent == {"2026-08-24": 1}
     assert controlled.history[0]["action"] == "Sent to Skylight"
+    assert controlled.as_day_payload()["results"] == [
+        {"kid_name": "Parker", "selection": "Cheese Pizza", "status": "sent"},
+        {"kid_name": "Kylee", "selection": "__MAKE_AT_HOME__", "status": "skipped"},
+    ]
     assert client.closed is True
 
 
@@ -53,10 +58,11 @@ def test_control_reports_missing_frame_without_logging_in(tmp_path):
     controlled = PublicationControl(db_path, lambda: "", login).publish([date(2026, 8, 24)])
 
     assert controlled.error == "SKYLIGHT_FRAME_ID is not set in .env."
-    assert controlled.publication is None
+    assert controlled.date_results == []
     assert controlled.day_totals == {"2026-08-24": 1}
     assert controlled.day_sent == {"2026-08-24": 0}
     assert controlled.history == []
+    assert controlled.as_day_payload()["day_totals"] == {"2026-08-24": 1}
     assert login_called is False
 
 
@@ -99,17 +105,24 @@ def test_control_reports_multi_date_make_at_home_and_partial_outcomes(tmp_path):
     )
 
     assert controlled.error is None
-    assert controlled.publication is not None
-    assert [(outcome.menu_date, outcome.status) for outcome in controlled.publication.date_outcomes] == [
-        ("2026-08-24", "published"),
-        ("2026-08-25", "partial"),
+    assert [(result.menu_date, result.ok) for result in controlled.date_results] == [
+        ("2026-08-24", True),
+        ("2026-08-25", False),
     ]
-    assert [kid.status for kid in controlled.publication.date_outcomes[0].kid_outcomes] == [
-        "published",
-        "make_at_home",
+    assert [kid.status for kid in controlled.date_results[0].results] == [
+        "sent",
+        "skipped",
     ]
     assert controlled.day_totals == {"2026-08-24": 2, "2026-08-25": 2}
     assert controlled.day_sent == {"2026-08-24": 1, "2026-08-25": 0}
+    week_payload = controlled.as_week_payload()
+    assert week_payload["ok"] is False
+    assert week_payload["sent"] == 1
+    assert week_payload["skipped"] == 2
+    assert {result["status"] for result in week_payload["results"]} == {"sent", "skipped", "error"}
+    assert week_payload["errors"] == [
+        "recipe_creation(Kylee): simulated create_recipe failure for 'K- Hot Dog'"
+    ]
 
 
 def test_control_preserves_unowned_sittings(tmp_path):
@@ -128,6 +141,5 @@ def test_control_preserves_unowned_sittings(tmp_path):
     client.seed("Family Taco Night")
     controlled = PublicationControl(db_path, lambda: "frame-1", lambda: client).publish([date(2026, 8, 12)])
 
-    assert controlled.publication is not None
-    assert controlled.publication.date_outcomes[0].deleted == 1
+    assert controlled.date_results[0].deleted == 1
     assert client.summaries() == ["Family Taco Night", "P- Cheese Pizza"]
