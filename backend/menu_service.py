@@ -11,6 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from db import fetch_all_overrides
+from menu_item_display import MenuItemDisplay
 from school_menu import DayMenu, MenuItem, SchoolCafeConfig, get_week_dates, get_weekly_items
 
 APP_DIR = Path(__file__).resolve().parent
@@ -69,13 +70,12 @@ def _store_week(cfg: SchoolCafeConfig, monday: date_cls, week: list) -> None:
 def apply_overrides_to_items(
     items: list[dict], overrides: dict[str, str]
 ) -> list[dict]:
-    """Return a copy of `items` with display_description overridden where set."""
+    """Return a copy of `items` with display_description resolved."""
+    display = MenuItemDisplay(overrides)
     out: list[dict] = []
     for item in items:
         row = dict(item)
-        row["display_description"] = overrides.get(
-            row["description"], row["description"]
-        )
+        row["display_description"] = display.display(row["description"])
         out.append(row)
     return out
 
@@ -83,19 +83,15 @@ def apply_overrides_to_items(
 def apply_overrides_to_week(
     week: list[Any], overrides: dict[str, str] | None = None, db_path: Path | None = None
 ) -> list[Any]:
-    """Return a copy of a fetched week (list of DayMenu) with display overrides applied."""
+    """Return a copy of a fetched week with current Display Text resolved."""
     if overrides is None:
         overrides = fetch_all_overrides(db_path)
-    if not overrides:
-        return week
 
+    display = MenuItemDisplay(overrides)
     out: list[Any] = []
     for day in week:
         new_items = [
-            MenuItem(
-                description=overrides.get(i.description, i.description) or i.description,
-                category=i.category,
-            )
+            MenuItem(description=display.display(i.description), category=i.category)
             for i in day.items
         ]
         out.append(DayMenu(date=day.date, items=new_items))
@@ -118,9 +114,11 @@ def fetch_week(
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
 
-    week = apply_overrides_to_week(week, None, db_path)
+    # Cache stable cased menu data; parent-controlled Display Overrides are
+    # resolved after every cache read so edits take effect immediately.
+    week = apply_overrides_to_week(week, {})
     _store_week(cfg, monday, week)
-    return week, None
+    return apply_overrides_to_week(week, None, db_path), None
 
 
 def entrees_for_date(
@@ -135,24 +133,3 @@ def entrees_for_date(
             return [e.description for e in day.entrees]
     return []
 
-
-def recase_all_items_with_llm(db_path: Path | None = None) -> dict:
-    """Run all unique menu items through agy (gemini-3.6-flash-low) and set permanent display overrides."""
-    from db import fetch_unique_menu_items, set_menu_override
-    from school_menu import _query_llm_for_case
-
-    unique_items = fetch_unique_menu_items(db_path)
-    updated = 0
-    for item in unique_items:
-        orig = item["description"]
-        cased = _query_llm_for_case(orig)
-        if cased and cased != orig:
-            set_menu_override(orig, cased, db_path)
-            updated += 1
-
-    return {
-        "ok": True,
-        "count": len(unique_items),
-        "updated": updated,
-        "message": f"Processed {len(unique_items)} unique items with Gemini 3.6 Flash. Updated {updated} display overrides.",
-    }

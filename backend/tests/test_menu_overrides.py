@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
 
+import db
+import menu_service
 from menu_sync import (
     apply_overrides_to_items,
     apply_overrides_to_week,
@@ -13,7 +16,7 @@ from menu_sync import (
     fetch_all_overrides,
     set_menu_override,
 )
-from school_menu import DayMenu, MenuItem
+from school_menu import DayMenu, MenuItem, SchoolCafeConfig
 
 
 @pytest.fixture
@@ -90,3 +93,40 @@ class TestOverrideApplication:
         ]
         out = apply_overrides_to_week(week, {})
         assert out[0].items[0].description == "Cheese Pizza"
+
+
+class TestCachedWeekDisplayText:
+    def test_set_and_clear_override_update_a_cached_week_without_refetching(self, monkeypatch, db_path):
+        db.init_db(db_path)
+        config = SchoolCafeConfig("test", "Lunch", "Lunch", "02")
+        source_week = [
+            DayMenu(
+                date=date(2026, 8, 24),
+                items=[MenuItem("CHEESE PIZZA", "LUNCH ENTREE")],
+            )
+        ]
+        fetches = 0
+
+        def fetch_source_week(_config, _reference):
+            nonlocal fetches
+            fetches += 1
+            return source_week
+
+        monkeypatch.setattr(menu_service, "school_config", lambda: config)
+        monkeypatch.setattr(menu_service, "get_weekly_items", fetch_source_week)
+        monkeypatch.setattr(menu_service, "_week_cache", {})
+
+        first, error = menu_service.fetch_week(date(2026, 8, 24), db_path)
+        assert error is None
+        assert first[0].items[0].description == "Cheese Pizza"
+
+        set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
+        overridden, error = menu_service.fetch_week(date(2026, 8, 24), db_path)
+        assert error is None
+        assert overridden[0].items[0].description == "Pizza Friday"
+
+        clear_menu_override("CHEESE PIZZA", db_path)
+        cleared, error = menu_service.fetch_week(date(2026, 8, 24), db_path)
+        assert error is None
+        assert cleared[0].items[0].description == "Cheese Pizza"
+        assert fetches == 1

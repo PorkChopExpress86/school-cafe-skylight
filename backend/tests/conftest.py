@@ -8,9 +8,7 @@ and can't write to anyone's real calendar.
 
 from __future__ import annotations
 
-import sqlite3
 import sys
-from contextlib import contextmanager
 from datetime import date as date_cls
 from pathlib import Path
 
@@ -20,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import fastapi_app  # noqa: E402
 from school_menu import DayMenu, MenuItem, get_week_dates  # noqa: E402
+from skylight_adapter import SkylightCredentials  # noqa: E402
 
 # A Wednesday, so get_week_dates() yields a full Mon-Fri around it.
 MENU_DATE = "2026-08-12"
@@ -87,6 +86,7 @@ class FakeSkylightClient:
             id=self._new_id(),
             meal_category_id=meal_category_id,
             meal_recipe_id=meal_recipe_id,
+            instances=[date],
         )
         self.sittings.append(sitting)
         return sitting
@@ -108,7 +108,10 @@ class FakeSkylightClient:
         recipe = FakeObj(id=self._new_id(), summary=summary)
         self.recipes.append(recipe)
         sitting = FakeObj(
-            id=self._new_id(), meal_category_id=category_id, meal_recipe_id=recipe.id
+            id=self._new_id(),
+            meal_category_id=category_id,
+            meal_recipe_id=recipe.id,
+            instances=[MENU_DATE],
         )
         self.sittings.append(sitting)
         return sitting
@@ -126,7 +129,7 @@ class FakeSkylightClient:
 def app_module(tmp_path, monkeypatch):
     """fastapi_app wired to a throwaway DB, a stubbed menu, and no real env."""
     monkeypatch.setattr(fastapi_app, "DB_PATH", tmp_path / "test.db")
-    monkeypatch.setattr(fastapi_app, "_week_cache", {})
+    monkeypatch.setattr(fastapi_app.menu_service, "_week_cache", {})
 
     week = [
         DayMenu(date=d, items=[MenuItem(e, "LUNCH ENTREE") for e in ENTREES])
@@ -134,17 +137,16 @@ def app_module(tmp_path, monkeypatch):
     ]
     monkeypatch.setattr(fastapi_app, "fetch_week", lambda ref: (week, None))
     monkeypatch.setattr(fastapi_app, "school_config", lambda: None)
-    monkeypatch.setattr(
-        fastapi_app,
-        "skylight_config",
-        lambda: {
-            "email": "test@example.com",
-            "password": "secret",
-            "frame_id": "frame-1",
-            "timezone": "",
-            "base_url": "",
-        },
+    # Patch the adapter's narrow providers: the published view is derived from
+    # credentials inside skylight_adapter, so a leak would show up here.
+    credentials = SkylightCredentials(
+        email="test@example.com",
+        password="secret",
+        frame_id="frame-1",
+        base_url="",
     )
+    monkeypatch.setattr(fastapi_app, "skylight_frame_id", lambda: credentials.frame_id)
+    monkeypatch.setattr(fastapi_app, "published_skylight_config", credentials.published)
     fastapi_app.init_db()
     return fastapi_app
 
@@ -168,40 +170,3 @@ def kid_ids(app_module):
     with app_module.get_db() as conn:
         rows = conn.execute("SELECT id, name FROM kids ORDER BY id").fetchall()
     return {r["name"]: r["id"] for r in rows}
-
-
-@contextmanager
-def failing_db(app_module, monkeypatch, sql_fragment: str):
-    """Make the first DB statement containing `sql_fragment` raise.
-
-    Used to prove that a database failure can't undo or skip work already
-    confirmed by Skylight.
-    """
-    real_path = app_module.DB_PATH
-    state = {"tripped": False}
-
-    class TrippingConnection:
-        def __init__(self, real):
-            self._real = real
-
-        def execute(self, sql, params=()):
-            if sql_fragment in sql and not state["tripped"]:
-                state["tripped"] = True
-                raise sqlite3.OperationalError("simulated DB failure")
-            return self._real.execute(sql, params)
-
-        def __getattr__(self, name):
-            return getattr(self._real, name)
-
-    @contextmanager
-    def _get_db():
-        real = sqlite3.connect(real_path, timeout=10)
-        real.row_factory = sqlite3.Row
-        real.execute("PRAGMA foreign_keys = ON")
-        try:
-            yield TrippingConnection(real)
-        finally:
-            real.close()
-
-    monkeypatch.setattr(app_module, "get_db", _get_db)
-    yield state

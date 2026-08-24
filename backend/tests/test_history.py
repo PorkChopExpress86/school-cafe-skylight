@@ -6,6 +6,9 @@ from datetime import datetime
 
 from conftest import ENTREES, MENU_DATE
 
+import db
+from db import MAKE_AT_HOME
+
 
 def select(client, kid_id, selection, menu_date=MENU_DATE):
     return client.post(
@@ -25,18 +28,19 @@ class TestHistoryStorage:
         assert datetime.fromisoformat(row["created_at"])
 
     def test_selection_is_stored_raw_not_prettified(self, app_module, client, kid_ids):
-        select(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        select(client, kid_ids["Parker"], MAKE_AT_HOME)
         with app_module.get_db() as conn:
             row = conn.execute(
                 "SELECT selection FROM selection_history ORDER BY id DESC LIMIT 1"
             ).fetchone()
-        assert row["selection"] == app_module.MAKE_AT_HOME
+        assert row["selection"] == MAKE_AT_HOME
 
-    def test_history_is_pruned_to_the_retention_limit(self, app_module, monkeypatch):
-        monkeypatch.setattr(app_module, "HISTORY_RETENTION", 5)
+    def test_history_is_pruned_to_the_retention_limit(self, app_module):
         with app_module.get_db() as conn:
             for i in range(20):
-                app_module.log_history(conn, "Parker", MENU_DATE, f"Item {i}", "Selected")
+                db.log_history(
+                    conn, "Parker", MENU_DATE, f"Item {i}", "Selected", retention_limit=5
+                )
             conn.commit()
             count = conn.execute("SELECT COUNT(*) AS c FROM selection_history").fetchone()["c"]
         assert count <= 6, f"history grew unbounded: {count} rows"
@@ -45,9 +49,9 @@ class TestHistoryStorage:
 class TestHistoryAPI:
     def test_make_at_home_is_returned_with_sentinel(self, app_module, client, kid_ids):
         """The API returns the raw sentinel; the SPA renders the friendly label."""
-        response = select(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        response = select(client, kid_ids["Parker"], MAKE_AT_HOME)
         data = response.json()
-        assert data["history"][0]["selection"] == app_module.MAKE_AT_HOME
+        assert data["history"][0]["selection"] == MAKE_AT_HOME
 
     def test_iso_timestamps_are_returned_raw(self, app_module, client, kid_ids):
         select(client, kid_ids["Parker"], ENTREES[0])

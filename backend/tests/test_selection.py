@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from conftest import ENTREES, MENU_DATE
 
+from db import MAKE_AT_HOME
+
 
 def select(client, kid_id, selection, menu_date=MENU_DATE):
     return client.post(
@@ -57,14 +59,14 @@ class TestSelectSemantics:
 
     def test_one_selection_per_kid_per_day(self, client, app_module, kid_ids):
         kid = kid_ids["Parker"]
-        for choice in (ENTREES[0], ENTREES[1], app_module.MAKE_AT_HOME):
+        for choice in (ENTREES[0], ENTREES[1], MAKE_AT_HOME):
             select(client, kid, choice)
         with app_module.get_db() as conn:
             rows = conn.execute(
                 "SELECT selection FROM selections WHERE kid_id = ? AND menu_date = ?",
                 (kid, MENU_DATE),
             ).fetchall()
-        assert [r["selection"] for r in rows] == [app_module.MAKE_AT_HOME]
+        assert [r["selection"] for r in rows] == [MAKE_AT_HOME]
 
     def test_changing_a_selection_clears_the_sent_marker(self, client, app_module, skylight, kid_ids):
         kid = kid_ids["Parker"]
@@ -80,9 +82,9 @@ class TestSelectSemantics:
         assert row["sent_sitting_id"] is None
 
     def test_make_at_home_is_accepted(self, client, app_module, kid_ids):
-        response = select(client, kid_ids["Parker"], app_module.MAKE_AT_HOME)
+        response = select(client, kid_ids["Parker"], MAKE_AT_HOME)
         assert response.status_code == 200
-        assert response.json()["selection"] == app_module.MAKE_AT_HOME
+        assert response.json()["selection"] == MAKE_AT_HOME
 
 
 class TestSelectValidation:

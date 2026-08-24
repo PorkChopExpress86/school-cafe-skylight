@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { useAdmin, useLlmCasing, useOverride, useSync } from "../hooks/useApi"
-import type { AdminItem } from "../types"
 
 export default function AdminPage() {
   const { data, isLoading, error } = useAdmin()
@@ -11,29 +10,16 @@ export default function AdminPage() {
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [searchQuery, setSearchQuery] = useState("")
 
-  // Deduplicate menu items into a list of unique descriptions.
-  const uniqueItems = useMemo(() => {
-    if (!data?.items) return []
-    const map = new Map<string, AdminItem>()
-    for (const item of data.items) {
-      if (!map.has(item.description)) {
-        map.set(item.description, item)
-      }
-    }
-    return Array.from(map.values()).sort((a, b) =>
-      a.display_description.localeCompare(b.display_description)
-    )
-  }, [data?.items])
-
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return uniqueItems
+    if (!data?.items) return []
+    if (!searchQuery.trim()) return data.items
     const q = searchQuery.toLowerCase()
-    return uniqueItems.filter(
+    return data.items.filter(
       (item) =>
         item.display_description.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q)
     )
-  }, [uniqueItems, searchQuery])
+  }, [data?.items, searchQuery])
 
   if (isLoading) {
     return (
@@ -180,7 +166,7 @@ export default function AdminPage() {
                   Unique Menu Items &amp; Permanent Overrides
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-xs font-extrabold bg-blue-950 text-blue-300 border border-blue-800/80">
-                  {uniqueItems.length} Unique Items
+                  {data.items.length} Unique Items
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">
@@ -217,7 +203,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {uniqueItems.length === 0 ? (
+          {data.items.length === 0 ? (
             <div className="px-5 py-8 text-sm text-slate-500 italic text-center">
               No menu items cached yet. Click "Sync now" above to fetch the school menu.
             </div>

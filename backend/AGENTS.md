@@ -14,8 +14,12 @@ school-cafe-skylight/
 │   ├── fastapi_app.py   ← Lean API router & middleware
 │   ├── db.py            ← SQLite database schema, connections, selections, overrides, sync logs
 │   ├── menu_service.py  ← SchoolCafé config, in-memory TTL caching, override resolution
-│   ├── skylight_service.py ← Skylight OAuth login, recipe title formatting, sitting matching
-│   ├── school_menu.py   ← SchoolCafé client + case formatting (agy AI integration)
+│   ├── meal_plan_publication.py ← Deep Meal-plan Publication workflow for day/week writes
+│   ├── publication_control.py ← Route-facing publication configuration, adapter, and readback control
+│   ├── skylight_adapter.py ← Skylight credentials, OAuth, and the pyskylight adapter
+│   ├── school_menu.py   ← SchoolCafé client (fetch + parse only)
+│   ├── menu_item_display.py ← Display Text: overrides + casing (pure, no I/O)
+│   ├── menu_casing.py   ← Bulk Display Override generation via agy (admin only)
 │   ├── menu_sync.py     ← 4-week menu sync CLI + retry loop
 │   ├── skylight_menu.py ← Skylight config loader
 │   ├── tests/           ← pytest suite (offline, 75+ tests)
@@ -34,7 +38,7 @@ school-cafe-skylight/
 - **Container is the runtime.** Local Python is for tests only; the app runs in Podman with bind-mounted source.
 - **Container restarts itself** via `systemctl --user start school-cafe.service` (see `~/.config/systemd/user/school-cafe.service`). Auto-restarts on crash/reboot.
 - **Automated Sunday 3:00 AM Sync:** Scheduled via crontab (`0 3 * * 0 podman exec school-cafe python menu_sync.py >> $HOME/dev/school-cafe-skylight/backend/sync.log 2>&1`) and in-container background scheduler (`_sunday_sync_scheduler` in `fastapi_app.py`). Syncs 4 weeks of menus every Sunday at 3:00 AM.
-- **AI Case Formatting:** Initial menu items pass through `_query_llm_for_case` via `agy -p ... --model gemini-3.6-flash-low`. On-demand bulk recasing available via Admin button (`POST /api/admin/llm-case-all`).
+- **AI Case Formatting:** Only the admin bulk re-casing pass talks to a model — `menu_casing.AgyCasingAdapter` (`agy -p ... --model gemini-3.6-flash-low`), triggered by `POST /api/admin/llm-case-all`. It asks for every unique item and pins the answers as Display Overrides. Nothing else shells out: `menu_item_display.MenuItemDisplay` is pure, and ingest/read paths never call a model. Tests pass a fake adapter as a parameter — never add a `PYTEST_CURRENT_TEST` check to production code.
 - **Frontend build automation:** `npm run build` runs a `postbuild` hook copying `frontend/dist` to `backend/static/`.
 - **Image:** `localhost/school-cafe-skylight:latest`. Rebuild after `Containerfile` or `requirements*.txt` changes.
 
@@ -44,7 +48,7 @@ school-cafe-skylight/
 |--------|---------|
 | Run backend tests | `cd backend && python -m pytest tests/ -q` |
 | Lint backend | `cd backend && ruff check .` |
-| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py skylight_service.py school_menu.py menu_sync.py` |
+| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py meal_plan_publication.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_item_display.py menu_casing.py` |
 | Build frontend & sync static | `cd frontend && npm run build` |
 | Frontend dev server | `cd frontend && npm run dev` |
 | Start container | `podman start school-cafe` (or `systemctl --user start school-cafe.service`) |
@@ -58,7 +62,7 @@ school-cafe-skylight/
 | GET | `/api/week?date=YYYY-MM-DD` | Week view: menu, kids, selections, counts, history |
 | POST | `/api/select` | Set one kid's selection (JSON body: `{kid_id, menu_date, selection}`) |
 | POST | `/api/send-day` | Send a day to Skylight (JSON body: `{menu_date}`) |
-| GET | `/api/admin` | Admin data: cached items, overrides, sync history |
+| GET | `/api/admin` | Source-unique, Display Text-resolved catalog plus sync attempts and last success |
 | POST | `/api/admin/override` | Set/clear permanent display override (`{original, replacement}`) |
 | POST | `/api/admin/sync` | Trigger immediate 4-week menu sync |
 | POST | `/api/admin/llm-case-all` | Run all unique menu items through `agy` (`gemini-3.6-flash-low`) AI casing |
@@ -80,9 +84,35 @@ school-cafe-skylight/
 - **OAuth2 PKCE is the only working auth.**
 - **Cache & rate-limit politely:** pyskylight caches the Bearer token at `~/.cache/pyskylight/token.json`.
 
+## Display Text (critical)
+
+One rule, one place: `menu_item_display.MenuItemDisplay.display()`. An active
+override on the raw text wins, else the text is cased and an override on the
+cased form is applied. Never resolve display text by reaching for
+`overrides.get(...)` directly — that variant is what let the entree a Kid picked
+and the Skylight recipe summary disagree (ADR-0002).
+
+`MenuItemDisplay` is pure: no adapter, no cache, no subprocess. Casing a
+complex item ("PB & J" vs. "Chikn, Rice & Beans") always uses the same
+`ACRONYMS` / `TITLE_CASE_EXCEPTIONS` rules — nothing in the read or ingest path
+ever shells out. If those rules stop being good enough, the Display Override
+table is the intended correction mechanism: a parent pins a replacement, and a
+repeated pin is the signal for what to add to the rule tables, not a reason to
+consult a model per item again.
+
+## Skylight configuration seam (critical)
+
+`SkylightCredentials` (email, password, frame_id, base_url) is consumed only by
+`skylight_login`. Routes may return `published_skylight_config()` — derived from
+the credentials via `SkylightCredentials.published()`, which carries `email` and
+`frame_id` and nothing else. Never put a raw credentials object, or the dict from
+`skylight_menu.load_config()`, in an API response: the password used to ride along
+in every `/api/week` payload. Narrowing belongs in `skylight_adapter`, not at the
+call site, so tests patch `skylight_credentials` and let the published view derive.
+
 ## Pre-send wipe logic (critical)
 
-`send_day_to_skylight` deletes ALL Lunch sittings on the date that match a kid prefix or name BEFORE creating new ones (`_sitting_matches_kid_prefixes`).
+Meal-plan Publication deletes all Lunch sittings on the date that have a stored sitting identifier or an exact configured Kid prefix before creating new ones. Loose Kid-name matching is deliberately excluded because it can claim unrelated family entries.
 
 ## Mistakes I made repeatedly (don't repeat them)
 
@@ -97,7 +127,7 @@ school-cafe-skylight/
 
 - Use `from __future__ import annotations` at the top of every Python file.
 - Pin exact versions in `requirements.txt` and `requirements-dev.txt`.
-- Deep module design (`db.py`, `menu_service.py`, `skylight_service.py`) keeping router thin and domain logic isolated.
+- Deep module design (`db.py`, `menu_service.py`, `meal_plan_publication.py`) keeping router thin and domain logic isolated.
 - `# noqa: BLE001` is the standard way to justify `except Exception` on a network/DB call.
 - Three-phase design for DB and network I/O: read from DB, release connection, do I/O, reopen DB and write.
 
@@ -108,7 +138,9 @@ school-cafe-skylight/
 | API routes & app lifespan | `backend/fastapi_app.py` |
 | Database connections, schema & overrides | `backend/db.py` |
 | Menu caching & override resolution | `backend/menu_service.py` |
-| Skylight login & recipe formatting | `backend/skylight_service.py` |
+| Day/week Meal-plan Publication | `backend/meal_plan_publication.py` |
+| Route-facing publication control | `backend/publication_control.py` |
+| Skylight login & external adapter | `backend/skylight_adapter.py` |
 | SchoolCafé API client & agy AI casing | `backend/school_menu.py` |
 | 4-week menu sync CLI + retry loop | `backend/menu_sync.py` |
 | Skylight CLI helper | `backend/skylight_menu.py` |
