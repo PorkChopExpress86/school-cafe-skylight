@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from menu_item_display import cased_menu_item
+from school_menu import format_day
 
 
 class TestTitleCaseFormatting:
@@ -58,3 +59,10 @@ class TestTitleCaseFormatting:
     )
     def test_common_items(self, source, expected):
         assert cased_menu_item(source) == expected
+
+
+class TestCommandLineFormatting:
+    def test_preserves_display_text_acronyms(self):
+        entries = [{"MenuItemDescription": "PB & J", "Category": "LUNCH ENTREE"}]
+
+        assert format_day(entries) == "  - PB & J"

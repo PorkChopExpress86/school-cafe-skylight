@@ -153,7 +153,7 @@ def format_day(entries: Any) -> str | None:
     items = extract_items(entries)
     if not items:
         return None
-    return "\n".join(f"  - {item.description.lower().title()}" for item in items)
+    return "\n".join(f"  - {item.description}" for item in items)
 
 
 def print_menu(
