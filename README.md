@@ -14,7 +14,7 @@ A modern, containerized FastAPI + React web application designed for families at
 - 📅 **Skylight Calendar Sync**: Publishes selected meals directly to your family's Skylight Frame with customized kid prefixes (`P- Brisket BBQ Sandwich`, `K- Cheese Pizza`).
 - 🤖 **AI Case Normalization (`agy`)**: Uses `agy` powered by `gemini-3.6-flash-low` to normalize ALL-CAPS API descriptions into clean, food-service display names.
 - ⚙️ **Deduplicated Admin Panel**: View unique menu items in a single consolidated list, search items in real time, run bulk AI recasing, and save permanent display overrides across all past and future weeks.
-- ⏰ **Automated Sunday Cron Sync**: Automatically syncs **4 weeks ahead** every Sunday at 3:00 AM via cron and an internal lifespan background scheduler.
+- ⏰ **Automated Sunday Sync**: The running application syncs **4 weeks ahead** once every Sunday at 3:00 AM Central Time.
 - 🎨 **Post Patriots Aesthetics**: Dark-mode UI styled in Post Elementary Patriots school colors (Navy `#0F172A`, Patriot Red `#DC2626`, and Gold accents).
 
 ---
@@ -30,14 +30,14 @@ school-cafe-skylight/
 │   ├── meal_plan_publication.py ← Shared day/week publication workflow
 │   ├── skylight_adapter.py     ← Skylight OAuth & pyskylight adapter
 │   ├── school_menu.py        ← SchoolCafé API client & agy AI title casing
-│   ├── menu_sync.py          ← 4-week menu sync CLI & retry loop
+│   ├── menu_sync.py          ← One 4-week menu sync attempt
+│   ├── menu_sync_schedule.py ← Automated Sunday scheduling policy
 │   ├── Containerfile         ← Production multi-stage Podman container definition
 │   └── tests/                ← Pytest suite (75+ offline tests)
 ├── frontend/                 ← React SPA (TypeScript + Vite + Tailwind v4)
 │   ├── src/pages/            ← WeekPage dashboard & AdminPage
 │   ├── src/components/       ← Cell, SendButton, DaySection, HistoryPanel
 │   └── src/api/              ← Typed API client & TanStack Query hooks
-└── scripts/                  ← systemd user units
 ```
 
 ---
@@ -90,13 +90,9 @@ Open your browser and navigate to:
 
 ---
 
-## ⏰ Automated Sunday 3:00 AM Cronjob
+## ⏰ Automated Sunday 3:00 AM Sync
 
-To automatically sync the next 4 weeks of menus every Sunday at 3:00 AM, add this entry to your user crontab (`crontab -e`):
-
-```cron
-0 3 * * 0 podman exec school-cafe python menu_sync.py >> $HOME/dev/school-cafe-skylight/backend/sync.log 2>&1
-```
+The FastAPI application is the sole automated scheduler. While it is running, it checks every 10 minutes and makes at most one sync attempt in the Sunday 3:00 AM America/Chicago window. No cron entry or systemd timer is needed. Failures are written to the Admin sync history; `POST /api/admin/sync` remains available for an immediate manual refresh.
 
 ---
 

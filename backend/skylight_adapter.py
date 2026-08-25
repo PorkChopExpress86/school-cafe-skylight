@@ -11,6 +11,8 @@ from typing import Any
 from dotenv import load_dotenv
 from pyskylight import SkylightClient
 
+from meal_plan_publication import SkylightRecipe, SkylightSitting
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 _env_loaded = False
 
@@ -86,13 +88,7 @@ def skylight_login() -> SkylightClient:
 
 
 def _sitting_falls_on_date(sitting: Any, menu_date: str) -> bool:
-    dates = getattr(sitting, "dates", None)
-    if dates:
-        return menu_date in list(dates)
-    instances = getattr(sitting, "instances", None)
-    if instances:
-        return menu_date in list(instances)
-    return True
+    return menu_date in sitting.dates
 
 
 class PyskylightAdapter:
@@ -104,14 +100,17 @@ class PyskylightAdapter:
 
     def resolve_lunch_category_id(self) -> str | None:
         for category in self._client.list_meal_categories(self._frame_id):
-            if (getattr(category, "label", "") or "").lower() == "lunch":
+            if (category.label or "").lower() == "lunch":
                 return str(category.id)
         return None
 
-    def list_recipes(self) -> list[Any]:
-        return self._client.list_recipes(self._frame_id)
+    def list_recipes(self) -> list[SkylightRecipe]:
+        return [
+            SkylightRecipe(id=str(recipe.id), summary=(recipe.summary or "").strip())
+            for recipe in self._client.list_recipes(self._frame_id)
+        ]
 
-    def list_lunch_sittings(self, menu_date: str, lunch_id: str) -> list[Any]:
+    def list_lunch_sittings(self, menu_date: str, lunch_id: str) -> list[SkylightSitting]:
         query_max = (date_cls.fromisoformat(menu_date) + timedelta(days=1)).isoformat()
         try:
             sittings = self._client.list_sittings(
@@ -122,30 +121,32 @@ class PyskylightAdapter:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"list_sittings({menu_date}): {exc}") from exc
         return [
-            sitting
+            SkylightSitting(id=str(sitting.id), meal_recipe_id=str(sitting.meal_recipe_id or ""))
             for sitting in sittings
-            if str(getattr(sitting, "meal_category_id", "")) == str(lunch_id)
+            if str(sitting.meal_category_id) == str(lunch_id)
             and _sitting_falls_on_date(sitting, menu_date)
         ]
 
     def delete_sitting(self, sitting_id: str, menu_date: str) -> None:
         self._client.delete_sitting(self._frame_id, sitting_id, menu_date)
 
-    def create_recipe(self, summary: str, description: str, lunch_id: str) -> Any:
-        return self._client.create_recipe(
+    def create_recipe(self, summary: str, description: str, lunch_id: str) -> SkylightRecipe:
+        recipe = self._client.create_recipe(
             self._frame_id,
             summary=summary,
             description=description,
             meal_category_id=lunch_id,
         )
+        return SkylightRecipe(id=str(recipe.id), summary=(recipe.summary or "").strip())
 
-    def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> Any:
-        return self._client.create_sitting(
+    def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> SkylightSitting:
+        sitting = self._client.create_sitting(
             self._frame_id,
             date=menu_date,
             meal_category_id=lunch_id,
             meal_recipe_id=recipe_id,
         )
+        return SkylightSitting(id=str(sitting.id), meal_recipe_id=str(sitting.meal_recipe_id))
 
     def close(self) -> None:
         self._client.close()

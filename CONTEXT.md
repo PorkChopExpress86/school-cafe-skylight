@@ -15,6 +15,11 @@ _Avoid_: Pick, meal record
 A Selection whose Owned Skylight Sitting is confirmed to exist. A removed sitting or failed creation leaves the Selection unpublished.
 _Avoid_: Sent Selection
 
+**Planner Readback**:
+The current, Display Text-resolved planner state for requested dates: stored
+Selections, per-date totals and published counts, and recent activity history.
+_Avoid_: Route response, refreshed page
+
 **Owned Skylight Sitting**:
 A Skylight Lunch entry managed by this planner for a Kid and date. Other family meal-plan entries are not owned by the planner.
 _Avoid_: Existing sitting, calendar item

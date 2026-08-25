@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Any, Protocol
+from typing import Protocol
 
 import db
 
@@ -15,20 +15,36 @@ _publication_lock = Lock()
 _active_publications: set[tuple[str, str]] = set()
 
 
+@dataclass(frozen=True)
+class SkylightRecipe:
+    """Recipe fields the publication workflow owns after adapter translation."""
+
+    id: str
+    summary: str
+
+
+@dataclass(frozen=True)
+class SkylightSitting:
+    """Sitting fields the publication workflow owns after adapter translation."""
+
+    id: str
+    meal_recipe_id: str
+
+
 class SkylightAdapter(Protocol):
     """External seam used by Meal-plan Publication."""
 
     def resolve_lunch_category_id(self) -> str | None: ...
 
-    def list_recipes(self) -> list[Any]: ...
+    def list_recipes(self) -> list[SkylightRecipe]: ...
 
-    def list_lunch_sittings(self, menu_date: str, lunch_id: str) -> list[Any]: ...
+    def list_lunch_sittings(self, menu_date: str, lunch_id: str) -> list[SkylightSitting]: ...
 
     def delete_sitting(self, sitting_id: str, menu_date: str) -> None: ...
 
-    def create_recipe(self, summary: str, description: str, lunch_id: str) -> Any: ...
+    def create_recipe(self, summary: str, description: str, lunch_id: str) -> SkylightRecipe: ...
 
-    def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> Any: ...
+    def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> SkylightSitting: ...
 
     def close(self) -> None: ...
 
@@ -154,8 +170,8 @@ class MealPlanPublisher:
                             }
                         )
                     else:
-                        recipes = {(recipe.summary or "").strip(): recipe for recipe in all_recipes}
-                        recipes_by_id = {str(recipe.id): recipe for recipe in all_recipes}
+                        recipes = {recipe.summary.strip(): recipe for recipe in all_recipes}
+                        recipes_by_id = {recipe.id: recipe for recipe in all_recipes}
                         outcomes_by_date.update(
                             {
                                 menu_date: self._publish_date(
@@ -243,8 +259,8 @@ class MealPlanPublisher:
         lunch_id: str,
         menu_date: str,
         snapshots: list[_SelectionSnapshot],
-        recipes: dict[str, Any],
-        recipes_by_id: dict[str, Any],
+        recipes: dict[str, SkylightRecipe],
+        recipes_by_id: dict[str, SkylightRecipe],
     ) -> DatePublicationOutcome:
         owned_prefixes = tuple(f"{snapshot.kid_prefix} " for snapshot in snapshots)
         owned_ids = {snapshot.sent_sitting_id for snapshot in snapshots if snapshot.sent_sitting_id}
@@ -260,13 +276,13 @@ class MealPlanPublisher:
                 message=f"Could not discover existing Skylight sittings: {exc}",
             )
         for sitting in lunch_sittings:
-            recipe = recipes_by_id.get(str(sitting.meal_recipe_id))
-            summary = (recipe.summary or "").strip() if recipe is not None else ""
-            if str(sitting.id) in owned_ids or summary.startswith(owned_prefixes):
+            recipe = recipes_by_id.get(sitting.meal_recipe_id)
+            summary = recipe.summary.strip() if recipe is not None else ""
+            if sitting.id in owned_ids or summary.startswith(owned_prefixes):
                 owned_sittings.append(sitting)
         deleted_sitting_ids: list[str] = []
         for sitting in owned_sittings:
-            sitting_id = str(sitting.id)
+            sitting_id = sitting.id
             try:
                 adapter.delete_sitting(sitting_id, menu_date)
                 deleted_sitting_ids.append(sitting_id)
@@ -329,9 +345,9 @@ class MealPlanPublisher:
                     )
                     continue
                 recipes[summary] = recipe
-                recipes_by_id[str(recipe.id)] = recipe
+                recipes_by_id[recipe.id] = recipe
             try:
-                sitting = adapter.create_sitting(menu_date, lunch_id, str(recipe.id))
+                sitting = adapter.create_sitting(menu_date, lunch_id, recipe.id)
             except Exception as exc:  # noqa: BLE001
                 kid_outcomes.append(
                     KidPublicationOutcome(
@@ -350,7 +366,7 @@ class MealPlanPublisher:
                     kid_name=snapshot.kid_name,
                     selection=snapshot.selection,
                     status="published",
-                    sitting_id=str(sitting.id),
+                    sitting_id=sitting.id,
                 )
             )
 

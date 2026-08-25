@@ -291,7 +291,7 @@ export default function AdminPage() {
           <div className="px-5 py-3.5 bg-slate-850 border-b border-slate-800">
             <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Sync Log History</h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Most recent first. Sunday cron + 2-hour retries for 48 hours on failure.
+              Most recent first. The running app makes one scheduled Sunday attempt at 3:00 AM Central Time.
             </p>
           </div>
           {data.attempts.length === 0 ? (

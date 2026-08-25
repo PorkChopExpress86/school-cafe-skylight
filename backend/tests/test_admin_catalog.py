@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import db
-
 
 def _store_menu_item(app_module, menu_date: str, description: str) -> None:
     with app_module.get_db() as conn:

@@ -10,9 +10,10 @@ endpoints below. This module returns JSON only - no templates, no HTML.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -22,14 +23,12 @@ from pydantic import BaseModel
 
 import db
 import menu_service
-from db import (
-    fetch_recent_history,
-    load_selections,
-    log_history,
-)
+from db import log_history
 from menu_casing import pin_display_overrides_for_all_items
 from menu_service import school_config
-from publication_control import PublicationControl, compute_day_counts
+from menu_sync_schedule import MenuSyncSchedule
+from planner_readback import PlannerReadback
+from publication_control import PublicationControl
 from school_menu import get_week_dates
 from skylight_adapter import (
     published_skylight_config,
@@ -39,6 +38,7 @@ from skylight_adapter import (
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = db.DEFAULT_DB_PATH
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Database & Lifespan
@@ -56,28 +56,18 @@ def init_db() -> None:
 
 
 async def _sunday_sync_scheduler():
-    """Background task inside container: syncs 4 weeks of menus every Sunday at 3:00 AM."""
+    """Run the deterministic Sunday sync policy from the application lifespan."""
     import asyncio
 
+    schedule = MenuSyncSchedule(DB_PATH)
     while True:
         try:
             await asyncio.sleep(600)  # Check every 10 minutes
-            now = datetime.now()
-            # Sunday is weekday 6, check 03:00 AM window
-            if now.weekday() == 6 and now.hour == 3:
-                attempts = db.fetch_recent_sync_attempts(DB_PATH, limit=1)
-                last_attempt = attempts[0]["attempted_at"] if attempts else ""
-                today_iso = now.date().isoformat()
-                if not last_attempt.startswith(today_iso):
-                    from menu_sync import _load_env_config, sync_menu
-
-                    cfg = _load_env_config()
-                    if cfg:
-                        sync_menu(cfg, db_path=DB_PATH)
+            outcome = schedule.run_if_due(datetime.now(UTC))
+            if outcome.status == "failed":
+                logger.warning("Scheduled SchoolCafé menu sync failed: %s", outcome.message)
         except asyncio.CancelledError:
             break
-        except Exception:  # noqa: BLE001
-            pass
 
 
 @asynccontextmanager
@@ -139,23 +129,10 @@ def send_day_to_skylight(menu_date: str) -> dict:
 def _week_payload(ref: date_cls) -> dict:
     week, err = fetch_week(ref)
     dates = [d.isoformat() for d in get_week_dates(ref)]
+    readback = PlannerReadback.read(DB_PATH, dates)
 
     with get_db() as conn:
         kids = conn.execute("SELECT id, name, color, prefix FROM kids ORDER BY id").fetchall()
-        selections = load_selections(conn, dates)
-        history = fetch_recent_history(conn)
-
-    overrides = db.fetch_all_overrides(DB_PATH)
-    for day_date, kid_map in selections.items():
-        for kid_id, state in kid_map.items():
-            if state.get("selection"):
-                state["selection"] = db.resolve_display_text(state["selection"], overrides)
-
-    for h in history:
-        if h.get("selection"):
-            h["selection"] = db.resolve_display_text(h["selection"], overrides)
-
-    day_totals, day_sent = compute_day_counts(selections, dates)
 
     return {
         "week": [
@@ -167,10 +144,10 @@ def _week_payload(ref: date_cls) -> dict:
             for d in (week or [])
         ],
         "kids": [dict(k) for k in kids],
-        "selections": selections,
-        "day_totals": day_totals,
-        "day_sent": day_sent,
-        "history": history,
+        "selections": readback.selections,
+        "day_totals": readback.day_totals,
+        "day_sent": readback.day_sent,
+        "history": readback.history,
         "ref": ref.isoformat(),
         "prev_week": (ref - timedelta(days=7)).isoformat(),
         "next_week": (ref + timedelta(days=7)).isoformat(),
@@ -260,20 +237,16 @@ def api_select(req: SelectRequest) -> dict:
         log_history(conn, kid["name"], req.menu_date, selection, "Selected")
         conn.commit()
 
-        day_sels = load_selections(conn, [req.menu_date])
-        day_data = day_sels.get(req.menu_date, {})
-        total = len(day_data)
-        sent_count = sum(1 for v in day_data.values() if v["sent_sitting_id"])
-        history = fetch_recent_history(conn)
+    readback = PlannerReadback.read(DB_PATH, [req.menu_date])
 
     return {
         "kid_id": req.kid_id,
         "menu_date": req.menu_date,
         "selection": selection,
         "sent_at": current["sent_at"] if current else None,
-        "day_totals": {req.menu_date: total},
-        "day_sent": {req.menu_date: sent_count},
-        "history": history,
+        "day_totals": readback.day_totals,
+        "day_sent": readback.day_sent,
+        "history": readback.history,
     }
 
 
@@ -333,10 +306,10 @@ def api_admin_override(req: OverrideRequest) -> dict:
 
 @app.post("/api/admin/sync")
 def api_admin_sync() -> dict:
-    from menu_sync import _load_env_config
+    from menu_sync import load_sync_config
     from menu_sync import sync_menu as _sync_menu
 
-    config = _load_env_config()
+    config = load_sync_config()
     if config is None:
         return {"ok": False, "message": "SCHOOL_ID not set in .env"}
     try:

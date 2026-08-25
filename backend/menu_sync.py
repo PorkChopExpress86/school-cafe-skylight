@@ -3,17 +3,14 @@
 the local SQLite database so the admin page can show spelling,
 capitalization, and sync history.
 
-Used by:
-  - The Sunday cron task (via `python menu_sync.py`)
-  - The internal retry loop (every 2 hours for 48 hours on failure)
-  - The admin page (read-only access to the cache)
+Used by the in-app Sunday schedule, the immediate admin trigger, and a
+one-off command-line invocation.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -24,20 +21,6 @@ import menu_service
 from school_menu import SchoolCafeConfig, get_weekly_items
 
 SYNC_WEEKS = 4
-RETRY_INTERVAL_SECONDS = 2 * 60 * 60
-RETRY_WINDOW_SECONDS = 48 * 60 * 60
-
-# Backwards compatibility re-exports
-_init_menu_tables = db._init_menu_tables
-fetch_all_overrides = db.fetch_all_overrides
-set_menu_override = db.set_menu_override
-clear_menu_override = db.clear_menu_override
-apply_overrides_to_items = menu_service.apply_overrides_to_items
-apply_overrides_to_week = menu_service.apply_overrides_to_week
-fetch_recent_sync_attempts = db.fetch_recent_sync_attempts
-fetch_menu_items = db.fetch_menu_items
-fetch_distinct_weeks = db.fetch_distinct_weeks
-
 
 @dataclass(frozen=True)
 class SyncResult:
@@ -137,53 +120,18 @@ def sync_menu(
     return result
 
 
-def _load_env_config() -> SchoolCafeConfig | None:
+def load_sync_config() -> SchoolCafeConfig | None:
+    """Load the optional SchoolCafé configuration for a sync attempt."""
     return menu_service.school_config()
-
-
-def _retry_loop() -> int:
-    deadline = time.monotonic() + RETRY_WINDOW_SECONDS
-    while time.monotonic() < deadline:
-        wait = RETRY_INTERVAL_SECONDS
-        time.sleep(wait)
-        try:
-            config = _load_env_config()
-            if config is None:
-                print("SCHOOL_ID not set in .env", file=sys.stderr)
-                continue
-            sync_menu(config)
-            print(f"Retry succeeded at {datetime.now().isoformat(timespec='seconds')}")
-            return 0
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"Retry failed at {datetime.now().isoformat(timespec='seconds')}: "
-                f"{type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-    print(f"Gave up after {RETRY_WINDOW_SECONDS // 3600} hours", file=sys.stderr)
-    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Fetch the next 4 weeks of school lunch menus into the local DB."
     )
-    parser.add_argument(
-        "--no-retry",
-        action="store_true",
-        help="Don't retry on failure; just exit non-zero. Used by the cron task.",
-    )
-    parser.add_argument(
-        "--retry-only",
-        action="store_true",
-        help="Skip the initial sync and only run the retry loop.",
-    )
-    args = parser.parse_args(argv)
+    parser.parse_args(argv)
 
-    if args.retry_only:
-        return _retry_loop()
-
-    config = _load_env_config()
+    config = load_sync_config()
     if config is None:
         print("SCHOOL_ID not set in .env", file=sys.stderr)
         return 2
@@ -197,10 +145,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     except Exception as exc:  # noqa: BLE001
-        print(f"Initial sync failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        if args.no_retry:
-            return 1
-        return _retry_loop()
+        print(f"Menu sync failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

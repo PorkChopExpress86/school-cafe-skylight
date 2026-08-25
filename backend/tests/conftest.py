@@ -86,7 +86,7 @@ class FakeSkylightClient:
             id=self._new_id(),
             meal_category_id=meal_category_id,
             meal_recipe_id=meal_recipe_id,
-            instances=[date],
+            dates=[date],
         )
         self.sittings.append(sitting)
         return sitting
@@ -111,7 +111,7 @@ class FakeSkylightClient:
             id=self._new_id(),
             meal_category_id=category_id,
             meal_recipe_id=recipe.id,
-            instances=[MENU_DATE],
+            dates=[MENU_DATE],
         )
         self.sittings.append(sitting)
         return sitting

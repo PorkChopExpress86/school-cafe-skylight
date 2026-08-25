@@ -8,9 +8,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import db
-from db import fetch_recent_history, load_selections
 from meal_plan_publication import DatePublicationOutcome, MealPlanPublisher, PublicationResult
+from planner_readback import PlannerReadback
 from skylight_adapter import PyskylightAdapter
 
 
@@ -135,15 +134,15 @@ class PublicationControl:
     def publish(self, dates: Iterable[date]) -> PublicationControlResult:
         requested_dates = list(dates)
         date_values = [value.isoformat() for value in requested_dates]
-        day_totals, day_sent, history = self._readback(date_values)
+        readback = PlannerReadback.read(self._db_path, date_values)
         try:
             frame_id = self._frame_id()
             if not frame_id:
                 return PublicationControlResult(
                     date_results=[],
-                    day_totals=day_totals,
-                    day_sent=day_sent,
-                    history=history,
+                    day_totals=readback.day_totals,
+                    day_sent=readback.day_sent,
+                    history=readback.history,
                     error="SKYLIGHT_FRAME_ID is not set in .env.",
                 )
             publisher = MealPlanPublisher(
@@ -151,40 +150,21 @@ class PublicationControl:
                 lambda: PyskylightAdapter(self._login(), frame_id),
             )
             publication = publisher.publish(requested_dates)
-            day_totals, day_sent, history = self._readback(date_values)
+            readback = PlannerReadback.read(self._db_path, date_values)
         except Exception as exc:  # noqa: BLE001
             return PublicationControlResult(
                 date_results=[],
-                day_totals=day_totals,
-                day_sent=day_sent,
-                history=history,
+                day_totals=readback.day_totals,
+                day_sent=readback.day_sent,
+                history=readback.history,
                 error=f"{type(exc).__name__}: {exc}",
             )
         return PublicationControlResult(
             _normalize_publication(publication),
-            day_totals,
-            day_sent,
-            history,
+            readback.day_totals,
+            readback.day_sent,
+            readback.history,
         )
-
-    def _readback(self, date_values: list[str]) -> tuple[dict[str, int], dict[str, int], list[dict]]:
-        with db.get_db(self._db_path) as conn:
-            selections = load_selections(conn, date_values)
-            history = fetch_recent_history(conn)
-        day_totals, day_sent = compute_day_counts(selections, date_values)
-        return day_totals, day_sent, history
-
-
-def compute_day_counts(
-    selections: dict[str, dict[int, dict]], dates: list[str]
-) -> tuple[dict[str, int], dict[str, int]]:
-    totals: dict[str, int] = {}
-    sent: dict[str, int] = {}
-    for value in dates:
-        day = selections.get(value, {})
-        totals[value] = len(day)
-        sent[value] = sum(1 for selection in day.values() if selection["sent_sitting_id"])
-    return totals, sent
 
 
 def _normalize_publication(publication: PublicationResult) -> list[PlannerDateResult]:

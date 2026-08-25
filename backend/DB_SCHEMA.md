@@ -65,7 +65,7 @@ Append-only activity log shown on the dashboard. Pruned to
 
 ### menu_items
 
-Cached entrees from the SchoolCafé sync (Sunday cron). Only entrees are
+Cached entrees from the automated Sunday SchoolCafé sync. Only entrees are
 stored — the admin page lists exactly what's pickable.
 
 | Column | Type | Notes |
@@ -83,7 +83,7 @@ groups by week).
 ### menu_sync_log
 
 One row per sync attempt (success or failure). Backs the admin page's
-sync history and the retry loop's visibility.
+sync history and the automated scheduler's duplicate-attempt guard.
 
 | Column | Type | Notes |
 |--------|------|-------|

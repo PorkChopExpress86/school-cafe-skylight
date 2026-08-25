@@ -1,4 +1,4 @@
-"""Tests for menu-item display overrides (menu_sync.set_menu_override etc.)."""
+"""Tests for menu-item display overrides through their owning modules."""
 
 from __future__ import annotations
 
@@ -9,13 +9,8 @@ import pytest
 
 import db
 import menu_service
-from menu_sync import (
-    apply_overrides_to_items,
-    apply_overrides_to_week,
-    clear_menu_override,
-    fetch_all_overrides,
-    set_menu_override,
-)
+from db import clear_menu_override, fetch_all_overrides, set_menu_override
+from menu_service import apply_overrides_to_items, apply_overrides_to_week
 from school_menu import DayMenu, MenuItem, SchoolCafeConfig
 
 

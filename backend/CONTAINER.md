@@ -19,6 +19,7 @@ podman run -d \
   -v "$PWD/backend/fastapi_app.py:/app/fastapi_app.py:z" \
   -v "$PWD/backend/db.py:/app/db.py:z" \
   -v "$PWD/backend/menu_service.py:/app/menu_service.py:z" \
+  -v "$PWD/backend/planner_readback.py:/app/planner_readback.py:z" \
   -v "$PWD/backend/meal_plan_publication.py:/app/meal_plan_publication.py:z" \
   -v "$PWD/backend/publication_control.py:/app/publication_control.py:z" \
   -v "$PWD/backend/skylight_adapter.py:/app/skylight_adapter.py:z" \
@@ -27,6 +28,7 @@ podman run -d \
   -v "$PWD/backend/school_menu.py:/app/school_menu.py:z" \
   -v "$PWD/backend/skylight_menu.py:/app/skylight_menu.py:z" \
   -v "$PWD/backend/menu_sync.py:/app/menu_sync.py:z" \
+  -v "$PWD/backend/menu_sync_schedule.py:/app/menu_sync_schedule.py:z" \
   school-cafe-skylight:latest \
   uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --reload
 ```

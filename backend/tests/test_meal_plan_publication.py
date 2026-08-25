@@ -4,20 +4,28 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date
 from threading import Event
-from types import SimpleNamespace
 
 import db
-from meal_plan_publication import MealPlanPublisher
+from meal_plan_publication import MealPlanPublisher, SkylightRecipe, SkylightSitting
+
+
+@dataclass(frozen=True)
+class _StoredSitting:
+    id: str
+    menu_date: str
+    meal_category_id: str
+    meal_recipe_id: str
 
 
 class InMemorySkylightAdapter:
     """Skylight adapter used only at the external publication seam."""
 
     def __init__(self) -> None:
-        self.recipes: list[SimpleNamespace] = []
-        self.sittings: list[SimpleNamespace] = []
+        self.recipes: list[SkylightRecipe] = []
+        self.sittings: list[_StoredSitting] = []
         self.fail_delete_ids: set[str] = set()
         self.fail_list_dates: set[str] = set()
         self.fail_create_recipe_summaries: set[str] = set()
@@ -32,58 +40,64 @@ class InMemorySkylightAdapter:
             raise RuntimeError("simulated category discovery failure")
         return "cat-lunch"
 
-    def list_recipes(self) -> list[SimpleNamespace]:
+    def list_recipes(self) -> list[SkylightRecipe]:
         if self.fail_recipe_discovery:
             raise RuntimeError("simulated recipe discovery failure")
         return list(self.recipes)
 
-    def list_lunch_sittings(self, menu_date: str, _lunch_id: str) -> list[SimpleNamespace]:
+    def list_lunch_sittings(self, menu_date: str, _lunch_id: str) -> list[SkylightSitting]:
         if self.on_list_sittings is not None:
             self.on_list_sittings(menu_date)
         if menu_date in self.fail_list_dates:
             raise RuntimeError("simulated discovery failure")
-        return [s for s in self.sittings if s.menu_date == menu_date]
+        return [
+            SkylightSitting(id=sitting.id, meal_recipe_id=sitting.meal_recipe_id)
+            for sitting in self.sittings
+            if sitting.menu_date == menu_date
+        ]
 
     def delete_sitting(self, sitting_id: str, menu_date: str) -> None:
         if sitting_id in self.fail_delete_ids:
             raise RuntimeError("simulated removal failure")
-        self.sittings = [s for s in self.sittings if not (str(s.id) == sitting_id and s.menu_date == menu_date)]
+        self.sittings = [
+            sitting
+            for sitting in self.sittings
+            if not (sitting.id == sitting_id and sitting.menu_date == menu_date)
+        ]
 
-    def create_recipe(self, summary: str, description: str, lunch_id: str) -> SimpleNamespace:
+    def create_recipe(self, summary: str, description: str, lunch_id: str) -> SkylightRecipe:
         if summary in self.fail_create_recipe_summaries:
             raise RuntimeError("simulated recipe failure")
-        recipe = SimpleNamespace(
+        recipe = SkylightRecipe(
             id=f"recipe-{len(self.recipes) + 1}",
             summary=summary,
-            description=description,
-            meal_category_id=lunch_id,
         )
         self.recipes.append(recipe)
         return recipe
 
-    def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> SimpleNamespace:
-        recipe = next(r for r in self.recipes if str(r.id) == recipe_id)
+    def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> SkylightSitting:
+        recipe = next(recipe for recipe in self.recipes if recipe.id == recipe_id)
         if recipe.summary in self.fail_create_sitting_summaries:
             raise RuntimeError("simulated sitting failure")
-        sitting = SimpleNamespace(
+        sitting = _StoredSitting(
             id=f"sitting-{len(self.sittings) + 1}",
             menu_date=menu_date,
             meal_category_id=lunch_id,
             meal_recipe_id=recipe_id,
         )
         self.sittings.append(sitting)
-        return sitting
+        return SkylightSitting(id=sitting.id, meal_recipe_id=sitting.meal_recipe_id)
 
     def close(self) -> None:
         self.closed = True
 
     def summaries(self) -> list[str]:
-        recipes = {str(r.id): r for r in self.recipes}
-        return sorted(recipes[str(s.meal_recipe_id)].summary for s in self.sittings)
+        recipes = {recipe.id: recipe for recipe in self.recipes}
+        return sorted(recipes[sitting.meal_recipe_id].summary for sitting in self.sittings)
 
     def seed(self, summary: str, menu_date: str) -> None:
         recipe = self.create_recipe(summary, "seeded", "cat-lunch")
-        self.create_sitting(menu_date, "cat-lunch", str(recipe.id))
+        self.create_sitting(menu_date, "cat-lunch", recipe.id)
 
 
 class BlockingSkylightAdapter(InMemorySkylightAdapter):
@@ -92,7 +106,7 @@ class BlockingSkylightAdapter(InMemorySkylightAdapter):
         self.started = started
         self.release = release
 
-    def list_lunch_sittings(self, menu_date: str, lunch_id: str) -> list[SimpleNamespace]:
+    def list_lunch_sittings(self, menu_date: str, lunch_id: str) -> list[SkylightSitting]:
         self.started.set()
         if not self.release.wait(timeout=5):
             raise RuntimeError("test timed out waiting to release publication")
