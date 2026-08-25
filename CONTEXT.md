@@ -11,14 +11,40 @@ A child whose school-lunch choice is managed by the planner.
 A Kid's chosen lunch outcome for one school date: a Menu entree or Make at Home.
 _Avoid_: Pick, meal record
 
+**Selection Change**:
+The replacement of one Kid's Selection for one school date. A Selection Change
+supersedes any previous Published Selection for that Kid and date.
+_Avoid_: Selection update, choice save
+
 **Published Selection**:
 A Selection whose Owned Skylight Sitting is confirmed to exist. A removed sitting or failed creation leaves the Selection unpublished.
 _Avoid_: Sent Selection
+
+**Selection Publication State**:
+The planner-visible condition of a Selection after Meal-plan Publication:
+Pending, Published with an Owned Skylight Sitting, or Make at Home included
+without an Owned Skylight Sitting.
+_Avoid_: Sent flag, sitting status
 
 **Planner Readback**:
 The current, Display Text-resolved planner state for requested dates: stored
 Selections, per-date totals and published counts, and recent activity history.
 _Avoid_: Route response, refreshed page
+
+**Week Planner Readback**:
+The current weekly planning view: the displayed Menu, Kids, Planner Readback,
+and the current availability of school-menu and Skylight configuration.
+_Avoid_: Week payload, dashboard data
+
+**Menu Catalog**:
+The source-unique set of Menu items, their Display Text, and the recent
+history of Menu refresh attempts used to administer the planner.
+_Avoid_: Admin response, cache table
+
+**Planner Interaction State**:
+The current local planning interaction: an in-progress Selection Change or
+Meal-plan Publication and its retained outcome for the displayed week.
+_Avoid_: Page state, hook state
 
 **Owned Skylight Sitting**:
 A Skylight Lunch entry managed by this planner for a Kid and date. Other family meal-plan entries are not owned by the planner.

@@ -14,13 +14,13 @@ import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import db
 import menu_service
 from school_menu import SchoolCafeConfig, get_weekly_items
 
 SYNC_WEEKS = 4
+
 
 @dataclass(frozen=True)
 class SyncResult:
@@ -34,41 +34,19 @@ class SyncResult:
     weeks_covered: list[str]
 
 
-def _store_menu_items(
-    conn: Any, week_start: date, items: list[tuple[date, str, str]]
-) -> int:
-    """Upsert menu items for one week. Returns the number of rows written."""
-    fetched_at = datetime.now().isoformat(timespec="seconds")
-    week_start_iso = week_start.isoformat()
-    stored = 0
-    for menu_date, description, category in items:
-        conn.execute(
-            """
-            INSERT INTO menu_items
-                (menu_date, description, category, week_start, fetched_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(menu_date, description) DO UPDATE
-                SET category = excluded.category,
-                    week_start = excluded.week_start,
-                    fetched_at = excluded.fetched_at
-            """,
-            (menu_date.isoformat(), description, category, week_start_iso, fetched_at),
-        )
-        stored += 1
-    return stored
-
-
-def _sync_one_week(
-    conn: Any, config: SchoolCafeConfig, week_start: date
-) -> tuple[int, list[str]]:
-    """Fetch and store one week's entrees. Returns (items_stored, week_starts)."""
+def _fetch_one_week(config: SchoolCafeConfig, week_start: date) -> list[tuple[date, str, str]]:
+    """Fetch one week without opening the local SQLite database."""
     days = get_weekly_items(config, week_start)
     items: list[tuple[date, str, str]] = []
     for day in days:
         for entree in day.entrees:
             items.append((day.date, entree.description, entree.category))
-    stored = _store_menu_items(conn, week_start, items)
-    return stored, [week_start.isoformat()]
+    return items
+
+
+def _week_starts(reference: date) -> list[date]:
+    first_week_start = reference - timedelta(days=reference.weekday())
+    return [first_week_start + timedelta(days=week_offset * 7) for week_offset in range(SYNC_WEEKS)]
 
 
 def sync_menu(
@@ -83,18 +61,11 @@ def sync_menu(
         db_path = db.DEFAULT_DB_PATH
 
     attempted_at = datetime.now()
-    weeks_covered: list[str] = []
-    total_stored = 0
     try:
-        with db.get_db(db_path) as conn:
-            db._init_menu_tables(conn)
-            for week_offset in range(SYNC_WEEKS):
-                week_start = reference + timedelta(days=week_offset * 7)
-                week_start = week_start - timedelta(days=week_start.weekday())
-                stored, _ = _sync_one_week(conn, config, week_start)
-                total_stored += stored
-                weeks_covered.append(week_start.isoformat())
-            conn.commit()
+        week_starts = _week_starts(reference)
+        fetched_weeks = [(week_start, _fetch_one_week(config, week_start)) for week_start in week_starts]
+        total_stored = db.store_menu_items(fetched_weeks, db_path)
+        weeks_covered = [week_start.isoformat() for week_start in week_starts]
 
         result = SyncResult(
             attempted_at=attempted_at,

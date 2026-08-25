@@ -1,4 +1,8 @@
 fastapi==0.141.1
+# FastAPI permits Starlette 1.x, whose TestClient deprecates this project's
+# pinned httpx dependency in favour of a separate httpx2 package. Keep the
+# current httpx-based test client until this repository deliberately migrates.
+starlette==0.52.1
 uvicorn[standard]==0.52.1
 python-dotenv==1.2.2
 # Pinned to a commit rather than a branch: pyskylight is an unofficial,

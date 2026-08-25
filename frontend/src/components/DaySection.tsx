@@ -1,7 +1,7 @@
 import { MAKE_AT_HOME, type DayMenu, type Kid, type SelectionState } from "../types"
+import type { PlannerDayInteraction } from "../hooks/usePlannerInteraction"
 import Cell from "./Cell"
 import SendButton from "./SendButton"
-import type { SendResult } from "../types"
 
 interface DaySectionProps {
   day: DayMenu
@@ -9,10 +9,7 @@ interface DaySectionProps {
   selections: Record<number, SelectionState>
   total: number
   sentCount: number
-  result: SendResult | null
-  sending: boolean
-  onSelect: (kidId: number, menuDate: string, selection: string) => void
-  onSend: (menuDate: string) => void
+  interaction: PlannerDayInteraction
 }
 
 export default function DaySection({
@@ -21,10 +18,7 @@ export default function DaySection({
   selections,
   total,
   sentCount,
-  result,
-  sending,
-  onSelect,
-  onSend,
+  interaction,
 }: DaySectionProps) {
   const gridCols = { gridTemplateColumns: `1fr repeat(${kids.length}, auto)` }
 
@@ -47,9 +41,9 @@ export default function DaySection({
           menuDate={day.date}
           total={total}
           sentCount={sentCount}
-          result={result}
-          onSend={onSend}
-          sending={sending}
+          result={interaction.result}
+          onSend={interaction.onPublication}
+          sending={interaction.isPublishing}
         />
       </div>
 
@@ -84,7 +78,7 @@ export default function DaySection({
                 {kids.map((kid) => {
                   const current = selections[kid.id]
                   const selected = current?.selection === item
-                  const isSent = selected && Boolean(current?.sent_at)
+                  const publicationState = current?.publication_state ?? "pending"
                   return (
                     <Cell
                       key={kid.id}
@@ -92,8 +86,9 @@ export default function DaySection({
                       menuDate={day.date}
                       item={item}
                       selected={selected}
-                      isSent={isSent}
-                      onSelect={onSelect}
+                      isLocked={selected && publicationState !== "pending"}
+                      publicationState={publicationState}
+                      onSelect={interaction.onSelectionChange}
                     />
                   )
                 })}
@@ -112,7 +107,7 @@ export default function DaySection({
             {kids.map((kid) => {
               const current = selections[kid.id]
               const selected = current?.selection === MAKE_AT_HOME
-              const isSent = selected && Boolean(current?.sent_at)
+              const publicationState = current?.publication_state ?? "pending"
               return (
                 <Cell
                   key={kid.id}
@@ -120,8 +115,9 @@ export default function DaySection({
                   menuDate={day.date}
                   item={MAKE_AT_HOME}
                   selected={selected}
-                  isSent={isSent}
-                  onSelect={onSelect}
+                  isLocked={selected && publicationState !== "pending"}
+                  publicationState={publicationState}
+                  onSelect={interaction.onSelectionChange}
                 />
               )
             })}

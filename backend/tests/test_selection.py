@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
 from conftest import ENTREES, MENU_DATE
 
+import db
 from db import MAKE_AT_HOME
+from selection_change import SelectionChange, UnknownKidError
 
 
 def select(client, kid_id, selection, menu_date=MENU_DATE):
@@ -130,3 +133,26 @@ class TestSelectValidation:
     def test_send_day_rejects_a_malformed_date(self, client):
         response = client.post("/api/send-day", json={"menu_date": "13/45/9999"})
         assert response.status_code == 400
+
+
+def test_selection_change_owns_persistence_history_and_refreshed_readback(tmp_path):
+    db_path = tmp_path / "selection-change.db"
+    db.init_db(db_path)
+    db.set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
+    with db.get_db(db_path) as conn:
+        kid_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
+
+    result = SelectionChange(db_path).apply(kid_id, MENU_DATE, "CHEESE PIZZA")
+
+    assert result.selection == "Pizza Friday"
+    assert result.readback.selections[MENU_DATE][kid_id]["selection"] == "Pizza Friday"
+    assert result.readback.day_totals == {MENU_DATE: 1}
+    assert result.readback.history[0]["action"] == "Selected"
+
+
+def test_selection_change_rejects_an_unknown_kid(tmp_path):
+    db_path = tmp_path / "selection-change.db"
+    db.init_db(db_path)
+
+    with pytest.raises(UnknownKidError):
+        SelectionChange(db_path).apply(999999, MENU_DATE, "Cheese Pizza")

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -369,6 +369,34 @@ def fetch_distinct_weeks(db_path: Path | None = None) -> list[str]:
             "SELECT DISTINCT week_start FROM menu_items ORDER BY week_start DESC"
         ).fetchall()
     return [r[0] for r in rows]
+
+
+def store_menu_items(
+    weeks: list[tuple[date, list[tuple[date, str, str]]]], db_path: Path | None = None
+) -> int:
+    """Atomically store fetched menu entries, returning the number of rows written."""
+    target_path = db_path if db_path is not None else DEFAULT_DB_PATH
+    fetched_at = datetime.now().isoformat(timespec="seconds")
+    stored = 0
+    with get_db(target_path) as conn:
+        _init_menu_tables(conn)
+        for week_start, items in weeks:
+            for menu_date, description, category in items:
+                conn.execute(
+                    """
+                    INSERT INTO menu_items
+                        (menu_date, description, category, week_start, fetched_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(menu_date, description) DO UPDATE
+                        SET category = excluded.category,
+                            week_start = excluded.week_start,
+                            fetched_at = excluded.fetched_at
+                    """,
+                    (menu_date.isoformat(), description, category, week_start.isoformat(), fetched_at),
+                )
+                stored += 1
+        conn.commit()
+    return stored
 
 
 def log_sync_attempt(db_path: Path | None, result: Any) -> None:

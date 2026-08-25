@@ -2,16 +2,13 @@ import { useState } from "react"
 import { Link } from "react-router-dom"
 import DaySection from "../components/DaySection"
 import HistoryPanel from "../components/HistoryPanel"
-import { useSelect, useSendDay, useSendWeek, useWeek } from "../hooks/useApi"
-import type { SendResult } from "../types"
+import { usePlannerInteraction } from "../hooks/usePlannerInteraction"
+import { useWeek } from "../hooks/useApi"
 
 export default function WeekPage() {
   const [date, setDate] = useState<string | undefined>(undefined)
   const { data, isLoading, error } = useWeek(date)
-  const selectMutation = useSelect()
-  const sendMutation = useSendDay()
-  const sendWeekMutation = useSendWeek()
-  const [sendResults, setSendResults] = useState<Record<string, SendResult>>({})
+  const interaction = usePlannerInteraction()
 
   if (isLoading) {
     return (
@@ -45,18 +42,6 @@ export default function WeekPage() {
     year: "numeric",
   })
 
-  const handleSelect = (kidId: number, menuDate: string, selection: string) => {
-    selectMutation.mutate({ kid_id: kidId, menu_date: menuDate, selection })
-  }
-
-  const handleSend = (menuDate: string) => {
-    sendMutation.mutate(menuDate, {
-      onSuccess: (result) => {
-        setSendResults((prev) => ({ ...prev, [menuDate]: result }))
-      },
-    })
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-12">
       {/* Top Patriot Decorative Accent Line */}
@@ -87,11 +72,11 @@ export default function WeekPage() {
               Week of <strong className="text-slate-200">{weekStartLabel}</strong>
             </span>
             <button
-              onClick={() => sendWeekMutation.mutate(data.ref)}
-              disabled={sendWeekMutation.isPending}
+              onClick={() => interaction.publishWeek(data.ref)}
+              disabled={interaction.isPublishingWeek}
               className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border border-red-500/40 shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
             >
-              {sendWeekMutation.isPending ? (
+              {interaction.isPublishingWeek ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                   <span>Sending Week...</span>
@@ -128,16 +113,16 @@ export default function WeekPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-        {sendWeekMutation.data && (
+        {interaction.weekPublicationResult && (
           <div
             className={`p-4 rounded-xl border text-sm flex items-center gap-3 shadow-md ${
-              sendWeekMutation.data.ok
+              interaction.weekPublicationResult.ok
                 ? "bg-emerald-950/80 text-emerald-200 border-emerald-800/80"
                 : "bg-amber-950/80 text-amber-200 border-amber-800/80"
             }`}
           >
-            <span>{sendWeekMutation.data.ok ? "✅" : "⚠️"}</span>
-            <div>{sendWeekMutation.data.message}</div>
+            <span>{interaction.weekPublicationResult.ok ? "✅" : "⚠️"}</span>
+            <div>{interaction.weekPublicationResult.message}</div>
           </div>
         )}
 
@@ -170,10 +155,7 @@ export default function WeekPage() {
                 selections={daySelections}
                 total={total}
                 sentCount={sentCount}
-                result={sendResults[day.date] ?? null}
-                sending={sendMutation.isPending}
-                onSelect={handleSelect}
-                onSend={handleSend}
+                interaction={interaction.dayInteraction(day.date)}
               />
             )
           })}

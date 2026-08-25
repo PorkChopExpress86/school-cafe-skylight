@@ -49,7 +49,7 @@ school-cafe-skylight/
 |--------|---------|
 | Run backend tests | `cd backend && python -m pytest tests/ -q` |
 | Lint backend | `cd backend && ruff check .` |
-| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py planner_readback.py meal_plan_publication.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_sync_schedule.py menu_item_display.py menu_casing.py` |
+| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py menu_catalog.py planner_readback.py selection_change.py selection_presentation.py meal_plan_publication.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_sync_schedule.py menu_item_display.py menu_casing.py` |
 | Build frontend & sync static | `cd frontend && npm run build` |
 | Frontend dev server | `cd frontend && npm run dev` |
 | Start container | `podman start school-cafe` (or `systemctl --user start school-cafe.service`) |
@@ -140,6 +140,9 @@ Meal-plan Publication deletes all Lunch sittings on the date that have a stored 
 | Database connections, schema & overrides | `backend/db.py` |
 | Menu caching & override resolution | `backend/menu_service.py` |
 | Display-resolved planner state | `backend/planner_readback.py` |
+| One Selection Change | `backend/selection_change.py` |
+| Menu Catalog Readback | `backend/menu_catalog.py` |
+| Selection presentation | `backend/selection_presentation.py` |
 | Day/week Meal-plan Publication | `backend/meal_plan_publication.py` |
 | Route-facing publication control | `backend/publication_control.py` |
 | Skylight login & external adapter | `backend/skylight_adapter.py` |

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import db
-from planner_readback import PlannerReadback
+import planner_readback
+from planner_readback import PlannerReadback, WeekPlannerReadback
+from school_menu import DayMenu, MenuItem
 
 
 def test_readback_resolves_display_text_and_keeps_global_history(tmp_path):
@@ -29,3 +33,72 @@ def test_readback_resolves_display_text_and_keeps_global_history(tmp_path):
         ("2026-08-25", "Hot Dog"),
         ("2026-08-24", "Pizza Friday"),
     ]
+
+
+def test_week_planner_readback_owns_the_complete_week_response(monkeypatch, tmp_path):
+    db_path = tmp_path / "week-planner.db"
+    db.init_db(db_path)
+    ref = date(2026, 8, 12)
+    week = [DayMenu(date(2026, 8, 10), [MenuItem("Cheese Pizza", "LUNCH ENTREE")])]
+    monkeypatch.setattr(planner_readback.menu_service, "fetch_week", lambda _ref, _path: (week, None))
+    monkeypatch.setattr(planner_readback.menu_service, "school_config", lambda: None)
+    monkeypatch.setattr(planner_readback, "_published_skylight_config", lambda: {"frame_id": "frame-1"})
+
+    readback = WeekPlannerReadback.read(db_path, ref)
+
+    assert readback.as_payload() == {
+        "week": [{"date": "2026-08-10", "weekday": "Monday", "entrees": ["Cheese Pizza"]}],
+        "kids": [
+            {"id": 1, "name": "Parker", "color": "#3B82F6", "prefix": "P-"},
+            {"id": 2, "name": "Kylee", "color": "#EC4899", "prefix": "K-"},
+        ],
+        "selections": {},
+        "day_totals": {
+            "2026-08-10": 0,
+            "2026-08-11": 0,
+            "2026-08-12": 0,
+            "2026-08-13": 0,
+            "2026-08-14": 0,
+        },
+        "day_sent": {
+            "2026-08-10": 0,
+            "2026-08-11": 0,
+            "2026-08-12": 0,
+            "2026-08-13": 0,
+            "2026-08-14": 0,
+        },
+        "history": [],
+        "ref": "2026-08-12",
+        "prev_week": "2026-08-05",
+        "next_week": "2026-08-19",
+        "today": date.today().isoformat(),
+        "school_cfg": None,
+        "skylight_cfg": {"frame_id": "frame-1"},
+        "menu_error": None,
+    }
+
+
+def test_readback_presents_pending_published_and_make_at_home_states(tmp_path):
+    db_path = tmp_path / "publication-state.db"
+    db.init_db(db_path)
+    with db.get_db(db_path) as conn:
+        kid_ids = {
+            row["name"]: row["id"] for row in conn.execute("SELECT id, name FROM kids").fetchall()
+        }
+        conn.executemany(
+            """
+            INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
+            VALUES (?, '2026-08-24', ?, ?, ?)
+            """,
+            [
+                (kid_ids["Parker"], "CHEESE PIZZA", "2026-08-24T12:00:00", "sitting-1"),
+                (kid_ids["Kylee"], db.MAKE_AT_HOME, "2026-08-24T12:00:00", None),
+            ],
+        )
+        conn.commit()
+
+    readback = PlannerReadback.read(db_path, ["2026-08-24", "2026-08-25"])
+
+    assert readback.selections["2026-08-24"][kid_ids["Parker"]]["publication_state"] == "published"
+    assert readback.selections["2026-08-24"][kid_ids["Kylee"]]["publication_state"] == "make_at_home"
+    assert readback.day_sent == {"2026-08-24": 1, "2026-08-25": 0}

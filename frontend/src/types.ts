@@ -13,7 +13,10 @@ export interface SelectionState {
   selection: string
   sent_at: string | null
   sent_sitting_id: string | null
+  publication_state: SelectionPublicationState
 }
+
+export type SelectionPublicationState = "pending" | "published" | "make_at_home"
 
 export interface DayMenu {
   date: string

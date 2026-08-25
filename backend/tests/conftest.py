@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import fastapi_app  # noqa: E402
+import planner_readback  # noqa: E402
 from school_menu import DayMenu, MenuItem, get_week_dates  # noqa: E402
 from skylight_adapter import SkylightCredentials  # noqa: E402
 
@@ -129,14 +130,14 @@ class FakeSkylightClient:
 def app_module(tmp_path, monkeypatch):
     """fastapi_app wired to a throwaway DB, a stubbed menu, and no real env."""
     monkeypatch.setattr(fastapi_app, "DB_PATH", tmp_path / "test.db")
-    monkeypatch.setattr(fastapi_app.menu_service, "_week_cache", {})
+    monkeypatch.setattr(planner_readback.menu_service, "_week_cache", {})
 
     week = [
         DayMenu(date=d, items=[MenuItem(e, "LUNCH ENTREE") for e in ENTREES])
         for d in get_week_dates(date_cls.fromisoformat(MENU_DATE))
     ]
-    monkeypatch.setattr(fastapi_app, "fetch_week", lambda ref: (week, None))
-    monkeypatch.setattr(fastapi_app, "school_config", lambda: None)
+    monkeypatch.setattr(planner_readback.menu_service, "fetch_week", lambda ref, db_path: (week, None))
+    monkeypatch.setattr(planner_readback.menu_service, "school_config", lambda: None)
     # Patch the adapter's narrow providers: the published view is derived from
     # credentials inside skylight_adapter, so a leak would show up here.
     credentials = SkylightCredentials(
@@ -146,7 +147,7 @@ def app_module(tmp_path, monkeypatch):
         base_url="",
     )
     monkeypatch.setattr(fastapi_app, "skylight_frame_id", lambda: credentials.frame_id)
-    monkeypatch.setattr(fastapi_app, "published_skylight_config", credentials.published)
+    monkeypatch.setattr(planner_readback, "_published_skylight_config", credentials.published)
     fastapi_app.init_db()
     return fastapi_app
 

@@ -1,16 +1,18 @@
-import { MAKE_AT_HOME, type Kid } from "../types"
+import { MAKE_AT_HOME, type Kid, type SelectionPublicationState } from "../types"
 
 interface CellProps {
   kid: Kid
   menuDate: string
   item: string
   selected: boolean
-  isSent: boolean
+  isLocked: boolean
+  publicationState: SelectionPublicationState
   onSelect: (kidId: number, menuDate: string, selection: string) => void
 }
 
-export default function Cell({ kid, menuDate, item, selected, isSent, onSelect }: CellProps) {
+export default function Cell({ kid, menuDate, item, selected, isLocked, publicationState, onSelect }: CellProps) {
   const isMakeHome = item === MAKE_AT_HOME
+  const isSent = isLocked
 
   let className =
     "inline-flex items-center justify-center w-8 h-8 rounded-full border-2 text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 active:scale-95 shadow-sm "
@@ -32,7 +34,9 @@ export default function Cell({ kid, menuDate, item, selected, isSent, onSelect }
   const label = isMakeHome
     ? `${kid.name} will make at home`
     : `${kid.name} will eat ${item}`
-  const ariaLabel = isSent ? `${label} (sent to Skylight)` : label
+  const ariaLabel = isLocked
+    ? `${label} (${publicationState === "published" ? "published to Skylight" : "included as Make at Home"})`
+    : label
 
   return (
     <div className="text-center min-w-20 flex justify-center">
@@ -41,7 +45,7 @@ export default function Cell({ kid, menuDate, item, selected, isSent, onSelect }
         className={className}
         style={style}
         aria-label={ariaLabel}
-        disabled={isSent}
+        disabled={isLocked}
         onClick={() => onSelect(kid.id, menuDate, item)}
       >
         {isSent ? "✓✓" : selected ? "✓" : "·"}

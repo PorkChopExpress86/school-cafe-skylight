@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager, contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from datetime import date as date_cls
 from pathlib import Path
 from typing import Annotated
@@ -22,16 +22,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import db
-import menu_service
-from db import log_history
 from menu_casing import pin_display_overrides_for_all_items
-from menu_service import school_config
+from menu_catalog import MenuCatalogReadback
 from menu_sync_schedule import MenuSyncSchedule
-from planner_readback import PlannerReadback
+from planner_readback import WeekPlannerReadback
 from publication_control import PublicationControl
 from school_menu import get_week_dates
+from selection_change import SelectionChange, UnknownKidError
 from skylight_adapter import (
-    published_skylight_config,
     skylight_frame_id,
     skylight_login,
 )
@@ -86,14 +84,6 @@ def _skylight_login():
     return skylight_login()
 
 
-def fetch_week(ref: date_cls):
-    return menu_service.fetch_week(ref, DB_PATH)
-
-
-def entrees_for_date(menu_date: str, parsed_date: date_cls) -> list[str]:
-    return menu_service.entrees_for_date(menu_date, parsed_date, DB_PATH)
-
-
 # ---------------------------------------------------------------------------
 # Helpers & Validation
 # ---------------------------------------------------------------------------
@@ -127,35 +117,7 @@ def send_day_to_skylight(menu_date: str) -> dict:
 
 
 def _week_payload(ref: date_cls) -> dict:
-    week, err = fetch_week(ref)
-    dates = [d.isoformat() for d in get_week_dates(ref)]
-    readback = PlannerReadback.read(DB_PATH, dates)
-
-    with get_db() as conn:
-        kids = conn.execute("SELECT id, name, color, prefix FROM kids ORDER BY id").fetchall()
-
-    return {
-        "week": [
-            {
-                "date": d.date.isoformat(),
-                "weekday": d.date.strftime("%A"),
-                "entrees": [e.description for e in d.entrees],
-            }
-            for d in (week or [])
-        ],
-        "kids": [dict(k) for k in kids],
-        "selections": readback.selections,
-        "day_totals": readback.day_totals,
-        "day_sent": readback.day_sent,
-        "history": readback.history,
-        "ref": ref.isoformat(),
-        "prev_week": (ref - timedelta(days=7)).isoformat(),
-        "next_week": (ref + timedelta(days=7)).isoformat(),
-        "today": date_cls.today().isoformat(),
-        "school_cfg": school_config(),
-        "skylight_cfg": published_skylight_config(),
-        "menu_error": err,
-    }
+    return WeekPlannerReadback.read(DB_PATH, ref).as_payload()
 
 
 # ---------------------------------------------------------------------------
@@ -208,45 +170,19 @@ def api_week(date: Annotated[str | None, Query()] = None) -> dict:
 def api_select(req: SelectRequest) -> dict:
     _parse_menu_date(req.menu_date)
     selection = _sanitize_selection(req.selection)
-    overrides = db.fetch_all_overrides(DB_PATH)
-    selection = db.resolve_display_text(selection, overrides)
-
-    with get_db() as conn:
-        kid = conn.execute("SELECT id, name, color, prefix FROM kids WHERE id = ?", (req.kid_id,)).fetchone()
-        if kid is None:
-            raise HTTPException(status_code=404, detail=f"Unknown kid_id {req.kid_id}.")
-
-        conn.execute(
-            """
-            INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
-            VALUES (?, ?, ?, NULL, NULL)
-            ON CONFLICT(kid_id, menu_date) DO UPDATE
-                SET selection = excluded.selection,
-                    sent_at = NULL,
-                    sent_sitting_id = NULL
-            """,
-            (req.kid_id, req.menu_date, selection),
-        )
-        conn.commit()
-
-        current = conn.execute(
-            "SELECT selection, sent_at FROM selections WHERE kid_id=? AND menu_date=?",
-            (req.kid_id, req.menu_date),
-        ).fetchone()
-
-        log_history(conn, kid["name"], req.menu_date, selection, "Selected")
-        conn.commit()
-
-    readback = PlannerReadback.read(DB_PATH, [req.menu_date])
+    try:
+        result = SelectionChange(DB_PATH).apply(req.kid_id, req.menu_date, selection)
+    except UnknownKidError:
+        raise HTTPException(status_code=404, detail=f"Unknown kid_id {req.kid_id}.")
 
     return {
-        "kid_id": req.kid_id,
-        "menu_date": req.menu_date,
-        "selection": selection,
-        "sent_at": current["sent_at"] if current else None,
-        "day_totals": readback.day_totals,
-        "day_sent": readback.day_sent,
-        "history": readback.history,
+        "kid_id": result.kid_id,
+        "menu_date": result.menu_date,
+        "selection": result.selection,
+        "sent_at": result.sent_at,
+        "day_totals": result.readback.day_totals,
+        "day_sent": result.readback.day_sent,
+        "history": result.readback.history,
     }
 
 
@@ -278,24 +214,7 @@ def api_send_week(req: SendWeekRequest) -> dict:
 
 @app.get("/api/admin")
 def api_admin() -> dict:
-    items = db.fetch_unique_menu_items(DB_PATH)
-    overrides = db.fetch_all_overrides(DB_PATH)
-    items = menu_service.apply_overrides_to_items(items, overrides)
-    items.sort(key=lambda item: (item["display_description"], item["description"]))
-    items = [
-        {
-            "description": item["description"],
-            "category": item["category"],
-            "display_description": item["display_description"],
-        }
-        for item in items
-    ]
-    attempts = db.fetch_recent_sync_attempts(DB_PATH, limit=50)
-    return {
-        "items": items,
-        "attempts": attempts,
-        "last_success": next((a for a in attempts if a["succeeded"]), None),
-    }
+    return MenuCatalogReadback.read(DB_PATH).as_payload()
 
 
 @app.post("/api/admin/override")
