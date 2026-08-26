@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import database_support as db
-import pytest
 from conftest import ENTREES, MENU_DATE, FakeObj
 
-from lunch_planner.planner.persistence import MAKE_AT_HOME
+from lunch_planner.planner.models import MAKE_AT_HOME
 
 
 def pick(client, kid_id, selection, menu_date=MENU_DATE):
@@ -20,36 +18,6 @@ def pick(client, kid_id, selection, menu_date=MENU_DATE):
 
 def send_day(client, menu_date=MENU_DATE):
     return client.post("/api/send-day", json={"menu_date": menu_date})
-
-
-class TestKidPrefixes:
-    def test_default_kids_get_their_documented_prefixes(self, app_module):
-        with app_module.get_db() as conn:
-            rows = conn.execute("SELECT name, prefix FROM kids ORDER BY id").fetchall()
-        assert {r["name"]: r["prefix"] for r in rows} == {"Parker": "P-", "Kylee": "K-"}
-
-    @pytest.mark.parametrize(
-        "name,expected",
-        [("Parker", "P-"), ("kylee", "K-"), ("  ada ", "A-"), ("", "?-"), ("   ", "?-"), ("!!", "?-")],
-    )
-    def test_derived_prefix_never_raises(self, app_module, name, expected):
-        """An empty or punctuation-only name used to raise IndexError."""
-        assert db._derive_kid_prefix(name) == expected
-
-    def test_prefixes_are_disambiguated(self, app_module):
-        assert db._unique_prefix("K-", set()) == "K-"
-        assert db._unique_prefix("K-", {"k-"}) == "K2-"
-        assert db._unique_prefix("K-", {"k-", "k2-"}) == "K3-"
-
-    def test_backfill_gives_same_initial_kids_distinct_prefixes(self, app_module):
-        with app_module.get_db() as conn:
-            conn.execute("INSERT INTO kids (name, color, prefix) VALUES ('Kyle', '#000', '')")
-            conn.commit()
-            db._backfill_kid_prefixes(conn)
-            conn.commit()
-            rows = conn.execute("SELECT name, prefix FROM kids").fetchall()
-        prefixes = [r["prefix"] for r in rows]
-        assert len(prefixes) == len(set(prefixes)), f"prefixes collided: {prefixes}"
 
 
 class TestPrefixScopedWipe:

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import database_support as db
 import pytest
 from conftest import ENTREES, MENU_DATE
 
-from lunch_planner.planner.persistence import MAKE_AT_HOME
+from lunch_planner.menu_catalog.persistence import set_menu_override
+from lunch_planner.persistence.connection import get_db
+from lunch_planner.persistence.schema import init_db
+from lunch_planner.planner.models import MAKE_AT_HOME
 from lunch_planner.planner.selection_change import SelectionChange, UnknownKidError
 
 
@@ -137,9 +139,9 @@ class TestSelectValidation:
 
 def test_selection_change_owns_persistence_history_and_refreshed_readback(tmp_path):
     db_path = tmp_path / "selection-change.db"
-    db.init_db(db_path)
-    db.set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
+    with get_db(db_path) as conn:
         kid_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
 
     result = SelectionChange(db_path).apply(kid_id, MENU_DATE, "CHEESE PIZZA")
@@ -152,7 +154,7 @@ def test_selection_change_owns_persistence_history_and_refreshed_readback(tmp_pa
 
 def test_selection_change_rejects_an_unknown_kid(tmp_path):
     db_path = tmp_path / "selection-change.db"
-    db.init_db(db_path)
+    init_db(db_path)
 
     with pytest.raises(UnknownKidError):
         SelectionChange(db_path).apply(999999, MENU_DATE, "Cheese Pizza")

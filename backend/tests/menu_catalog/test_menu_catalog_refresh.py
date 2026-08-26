@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, date, datetime
 
-import database_support as db
-
 from lunch_planner.menu_catalog import refresh as menu_catalog_refresh
+from lunch_planner.menu_catalog.persistence import fetch_recent_sync_attempts, log_sync_attempt
 from lunch_planner.menu_catalog.refresh import MenuCatalogRefresh, MenuCatalogRefreshResult
+from lunch_planner.persistence.schema import init_db
 from lunch_planner.school_menu.models import DayMenu, MenuItem, SchoolCafeConfig
 from tools import menu_refresh as menu_sync
 
@@ -100,8 +100,8 @@ def test_schedule_returns_not_due_without_loading_the_source(tmp_path) -> None:
 
 def test_schedule_skips_a_day_that_already_has_an_attempt(tmp_path) -> None:
     db_path = tmp_path / "catalog.db"
-    db.init_db(db_path)
-    db.log_sync_attempt(
+    init_db(db_path)
+    log_sync_attempt(
         db_path,
         MenuCatalogRefreshResult(SUNDAY_AT_THREE, "refreshed", "done", weeks_fetched=4),
     )
@@ -113,7 +113,7 @@ def test_schedule_skips_a_day_that_already_has_an_attempt(tmp_path) -> None:
 
 def test_schedule_converts_aware_instants_to_central_time(tmp_path) -> None:
     db_path = tmp_path / "catalog.db"
-    db.init_db(db_path)
+    init_db(db_path)
 
     result = MenuCatalogRefresh(db_path, _Source(config=None)).run_if_due(datetime(2026, 8, 30, 8, 5, tzinfo=UTC))
 
@@ -122,14 +122,14 @@ def test_schedule_converts_aware_instants_to_central_time(tmp_path) -> None:
 
 def test_schedule_runs_the_same_refresh_workflow_when_due(tmp_path) -> None:
     db_path = tmp_path / "catalog.db"
-    db.init_db(db_path)
+    init_db(db_path)
     source = _Source()
 
     result = MenuCatalogRefresh(db_path, source).run_if_due(SUNDAY_AT_THREE)
 
     assert result.status == "refreshed"
     assert len(source.fetches) == menu_catalog_refresh.REFRESH_WEEKS
-    assert len(db.fetch_recent_sync_attempts(db_path)) == 1
+    assert len(fetch_recent_sync_attempts(db_path)) == 1
 
 
 def test_schedule_reports_failed_outcomes_and_stops_on_cancellation(monkeypatch, tmp_path) -> None:

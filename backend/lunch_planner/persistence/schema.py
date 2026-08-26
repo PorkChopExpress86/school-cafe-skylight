@@ -6,14 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from lunch_planner.persistence.connection import DEFAULT_DB_PATH, get_db
-from lunch_planner.planner.models import (
-    DEFAULT_KIDS,
-    derive_kid_prefix,
-    unique_kid_prefix,
-)
-
-_derive_kid_prefix = derive_kid_prefix
-_unique_prefix = unique_kid_prefix
+from lunch_planner.planner.models import DEFAULT_KIDS, derive_kid_prefix, unique_kid_prefix
 
 
 def init_menu_tables(conn: sqlite3.Connection) -> None:
@@ -63,9 +56,7 @@ def _backfill_kid_prefixes(conn: sqlite3.Connection) -> None:
     for r in rows:
         if (r["prefix"] or "").strip():
             continue
-        candidate = _unique_prefix(
-            defaults.get(r["name"]) or _derive_kid_prefix(r["name"]), taken
-        )
+        candidate = unique_kid_prefix(defaults.get(r["name"]) or derive_kid_prefix(r["name"]), taken)
         taken.add(candidate.lower())
         conn.execute("UPDATE kids SET prefix = ? WHERE id = ?", (candidate, r["id"]))
 

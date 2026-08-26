@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from datetime import date
 from threading import Event
 
-import database_support as db
-
+from lunch_planner.persistence.connection import get_db
+from lunch_planner.persistence.schema import init_db
+from lunch_planner.planner.models import MAKE_AT_HOME
 from lunch_planner.publication.models import SkylightRecipe, SkylightSitting
 from lunch_planner.publication.publisher import MealPlanPublisher
 
@@ -117,8 +118,8 @@ class BlockingSkylightAdapter(InMemorySkylightAdapter):
 
 def test_publication_publishes_one_date_through_one_interface(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -141,8 +142,8 @@ def test_publication_publishes_one_date_through_one_interface(tmp_path):
 
 def test_sitting_creation_failure_is_reported_for_one_kid(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -166,7 +167,7 @@ def test_sitting_creation_failure_is_reported_for_one_kid(tmp_path):
 
 def test_overlapping_publication_is_rejected_as_busy(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     started = Event()
     release = Event()
     first_skylight = BlockingSkylightAdapter(started, release)
@@ -188,7 +189,7 @@ def test_overlapping_publication_is_rejected_as_busy(tmp_path):
 
 def test_publication_replaces_exact_prefix_sittings_without_touching_family_entries(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     skylight = InMemorySkylightAdapter()
     skylight.seed("P- Old School Lunch", "2026-08-24")
     skylight.seed("Family Taco Night", "2026-08-24")
@@ -201,18 +202,18 @@ def test_publication_replaces_exact_prefix_sittings_without_touching_family_entr
 
 def test_stored_sitting_identifier_proves_ownership_without_a_prefix(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     skylight = InMemorySkylightAdapter()
     skylight.seed("Legacy School Lunch", "2026-08-24")
     stored_sitting_id = str(skylight.sittings[0].id)
-    with db.get_db(db_path) as conn:
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             """
             INSERT INTO selections (kid_id, menu_date, selection, sent_sitting_id)
             VALUES (?, ?, ?, ?)
             """,
-            (parker_id, "2026-08-24", db.MAKE_AT_HOME, stored_sitting_id),
+            (parker_id, "2026-08-24", MAKE_AT_HOME, stored_sitting_id),
         )
         conn.commit()
 
@@ -224,8 +225,8 @@ def test_stored_sitting_identifier_proves_ownership_without_a_prefix(tmp_path):
 
 def test_removal_failure_blocks_new_sittings_for_that_date(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -246,7 +247,7 @@ def test_removal_failure_blocks_new_sittings_for_that_date(tmp_path):
 
 def test_removal_failure_clears_only_successfully_removed_sitting_state(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     skylight = InMemorySkylightAdapter()
     skylight.seed("P- Old School Lunch", "2026-08-24")
     parker_sitting_id = str(skylight.sittings[0].id)
@@ -254,7 +255,7 @@ def test_removal_failure_clears_only_successfully_removed_sitting_state(tmp_path
     kylee_sitting_id = str(skylight.sittings[1].id)
     skylight.fail_delete_ids.add(kylee_sitting_id)
 
-    with db.get_db(db_path) as conn:
+    with get_db(db_path) as conn:
         kids = {row["name"]: row["id"] for row in conn.execute("SELECT id, name FROM kids")}
         conn.executemany(
             """
@@ -271,7 +272,7 @@ def test_removal_failure_clears_only_successfully_removed_sitting_state(tmp_path
     result = MealPlanPublisher(db_path, lambda: skylight).publish([date(2026, 8, 24)])
 
     assert (result.date_outcomes[0].status, result.date_outcomes[0].deleted) == ("blocked", 1)
-    with db.get_db(db_path) as conn:
+    with get_db(db_path) as conn:
         rows = conn.execute(
             "SELECT kid_id, sent_at, sent_sitting_id FROM selections WHERE menu_date = ? ORDER BY kid_id",
             ("2026-08-24",),
@@ -285,12 +286,12 @@ def test_removal_failure_clears_only_successfully_removed_sitting_state(tmp_path
 
 def test_concurrent_selection_change_is_not_marked_published_by_a_stale_snapshot(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     skylight = InMemorySkylightAdapter()
     skylight.seed("P- Cheese Pizza", "2026-08-24")
     old_sitting_id = str(skylight.sittings[0].id)
 
-    with db.get_db(db_path) as conn:
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             """
@@ -302,7 +303,7 @@ def test_concurrent_selection_change_is_not_marked_published_by_a_stale_snapshot
         conn.commit()
 
     def change_selection_after_snapshot(menu_date: str) -> None:
-        with db.get_db(db_path) as conn:
+        with get_db(db_path) as conn:
             conn.execute(
                 """
                 UPDATE selections
@@ -322,7 +323,7 @@ def test_concurrent_selection_change_is_not_marked_published_by_a_stale_snapshot
         "failed",
         "concurrency",
     )
-    with db.get_db(db_path) as conn:
+    with get_db(db_path) as conn:
         row = conn.execute(
             "SELECT selection, sent_at, sent_sitting_id FROM selections WHERE kid_id = ? AND menu_date = ?",
             (parker_id, "2026-08-24"),
@@ -333,8 +334,8 @@ def test_concurrent_selection_change_is_not_marked_published_by_a_stale_snapshot
 
 def test_discovery_failure_is_isolated_to_one_date(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.executemany(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -359,7 +360,7 @@ def test_discovery_failure_is_isolated_to_one_date(tmp_path):
 
 def test_recipe_discovery_failure_blocks_every_requested_date(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     skylight = InMemorySkylightAdapter()
     skylight.fail_recipe_discovery = True
 
@@ -374,7 +375,7 @@ def test_recipe_discovery_failure_blocks_every_requested_date(tmp_path):
 
 def test_category_discovery_failure_returns_blocked_outcome(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
     skylight = InMemorySkylightAdapter()
     skylight.fail_category_discovery = True
 
@@ -389,7 +390,7 @@ def test_category_discovery_failure_returns_blocked_outcome(tmp_path):
 
 def test_connection_failure_blocks_every_requested_date(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
+    init_db(db_path)
 
     def fail_to_connect():
         raise RuntimeError("simulated login failure")
@@ -404,8 +405,8 @@ def test_connection_failure_blocks_every_requested_date(tmp_path):
 
 def test_publication_uses_one_frozen_snapshot_for_all_requested_dates(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.executemany(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -424,7 +425,7 @@ def test_publication_uses_one_frozen_snapshot_for_all_requested_dates(tmp_path):
         if menu_date != "2026-08-24" or changed:
             return
         changed = True
-        with db.get_db(db_path) as conn:
+        with get_db(db_path) as conn:
             conn.execute(
                 "UPDATE selections SET selection = 'Chicken Nuggets' WHERE kid_id = ? AND menu_date = '2026-08-25'",
                 (parker_id,),
@@ -443,8 +444,8 @@ def test_publication_uses_one_frozen_snapshot_for_all_requested_dates(tmp_path):
 
 def test_kid_creation_failure_produces_a_partial_date_outcome(tmp_path):
     db_path = tmp_path / "publication.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         kids = {row["name"]: row["id"] for row in conn.execute("SELECT id, name FROM kids ORDER BY id").fetchall()}
         conn.executemany(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",

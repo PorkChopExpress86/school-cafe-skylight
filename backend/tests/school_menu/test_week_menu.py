@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-import database_support as db
-
+from lunch_planner.menu_catalog.persistence import clear_menu_override, set_menu_override
+from lunch_planner.persistence.schema import init_db
 from lunch_planner.school_menu.models import DayMenu, MenuItem, SchoolCafeConfig
 from lunch_planner.school_menu.week_menu import WeekMenu
 
@@ -52,7 +52,7 @@ def test_week_menu_contains_source_errors() -> None:
 
 def test_week_menu_expires_source_weeks_through_its_interface(tmp_path) -> None:
     db_path = tmp_path / "week-menu.db"
-    db.init_db(db_path)
+    init_db(db_path)
     now = 10.0
     source = _Source()
     week_menu = WeekMenu(source, clock=lambda: now)
@@ -68,14 +68,14 @@ def test_week_menu_expires_source_weeks_through_its_interface(tmp_path) -> None:
 
 def test_display_overrides_update_a_cached_week_without_refetching(tmp_path) -> None:
     db_path = tmp_path / "week-menu.db"
-    db.init_db(db_path)
+    init_db(db_path)
     source = _Source()
     week_menu = WeekMenu(source)
 
     first = week_menu.read(REFERENCE, db_path)
-    db.set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
+    set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
     overridden = week_menu.read(REFERENCE, db_path)
-    db.clear_menu_override("CHEESE PIZZA", db_path)
+    clear_menu_override("CHEESE PIZZA", db_path)
     cleared = week_menu.read(REFERENCE, db_path)
 
     assert first.days is not None

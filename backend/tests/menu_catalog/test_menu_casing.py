@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import database_support as db
 import pytest
 
 from lunch_planner.menu_catalog.casing import pin_display_overrides_for_all_items
+from lunch_planner.menu_catalog.persistence import fetch_all_overrides
+from lunch_planner.persistence.connection import get_db
+from lunch_planner.persistence.schema import init_db
 
 
 class FakeCasing:
@@ -29,13 +31,12 @@ class FakeCasing:
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    db.init_db(path)
+    init_db(path)
     return path
 
 
 def _store_item(db_path: Path, description: str) -> None:
-    with db.get_db(db_path) as conn:
-        db._init_menu_tables(conn)
+    with get_db(db_path) as conn:
         conn.execute(
             "INSERT INTO menu_items (menu_date, description, category, week_start, fetched_at) "
             "VALUES ('2026-08-12', ?, 'LUNCH ENTREE', '2026-08-10', '2026-08-01T00:00:00')",
@@ -61,7 +62,7 @@ class TestBulkRecasing:
         result = pin_display_overrides_for_all_items(db_path, casing=casing)
 
         assert result["updated"] == 1
-        assert db.fetch_all_overrides(db_path)["Chikn, Rice & Beans"] == "Chik'n Rice & Beans"
+        assert fetch_all_overrides(db_path)["Chikn, Rice & Beans"] == "Chik'n Rice & Beans"
 
     def test_an_unchanged_or_silent_answer_pins_nothing(self, db_path):
         _store_item(db_path, "Hot Dog")
@@ -70,7 +71,7 @@ class TestBulkRecasing:
         result = pin_display_overrides_for_all_items(db_path, casing=casing)
 
         assert result["updated"] == 0
-        assert db.fetch_all_overrides(db_path) == {}
+        assert fetch_all_overrides(db_path) == {}
 
     def test_reports_the_total_item_count(self, db_path):
         _store_item(db_path, "Hot Dog")

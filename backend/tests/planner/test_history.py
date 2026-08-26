@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import database_support as db
 from conftest import ENTREES, MENU_DATE
 
-from lunch_planner.planner.persistence import MAKE_AT_HOME
+from lunch_planner.planner.models import MAKE_AT_HOME
+from lunch_planner.planner.persistence import log_history
 
 
 def select(client, kid_id, selection, menu_date=MENU_DATE):
@@ -38,7 +38,7 @@ class TestHistoryStorage:
     def test_history_is_pruned_to_the_retention_limit(self, app_module):
         with app_module.get_db() as conn:
             for i in range(20):
-                db.log_history(
+                log_history(
                     conn, "Parker", MENU_DATE, f"Item {i}", "Selected", retention_limit=5
                 )
             conn.commit()

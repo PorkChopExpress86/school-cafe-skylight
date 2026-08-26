@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 
-import database_support as db
-
+from lunch_planner.menu_catalog.persistence import set_menu_override
+from lunch_planner.persistence.connection import get_db
+from lunch_planner.persistence.schema import init_db
 from lunch_planner.planner import readback as planner_readback
+from lunch_planner.planner.models import MAKE_AT_HOME
+from lunch_planner.planner.persistence import log_history
 from lunch_planner.planner.readback import PlannerReadback, WeekPlannerReadback
 from lunch_planner.school_menu.models import DayMenu, MenuItem
 from lunch_planner.school_menu.week_menu import WeekMenuRead
@@ -14,17 +17,17 @@ from lunch_planner.school_menu.week_menu import WeekMenuRead
 
 def test_readback_resolves_display_text_and_keeps_global_history(tmp_path):
     db_path = tmp_path / "planner-readback.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
             (parker_id, "2026-08-24", "CHEESE PIZZA"),
         )
-        db.log_history(conn, "Parker", "2026-08-24", "CHEESE PIZZA", "Selected")
-        db.log_history(conn, "Kylee", "2026-08-25", "HOT DOG", "Selected")
+        log_history(conn, "Parker", "2026-08-24", "CHEESE PIZZA", "Selected")
+        log_history(conn, "Kylee", "2026-08-25", "HOT DOG", "Selected")
         conn.commit()
-    db.set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
+    set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
 
     readback = PlannerReadback.read(db_path, ["2026-08-24"])
 
@@ -39,7 +42,7 @@ def test_readback_resolves_display_text_and_keeps_global_history(tmp_path):
 
 def test_week_planner_readback_owns_the_complete_week_response(monkeypatch, tmp_path):
     db_path = tmp_path / "week-planner.db"
-    db.init_db(db_path)
+    init_db(db_path)
     ref = date(2026, 8, 12)
     week = [DayMenu(date(2026, 8, 10), [MenuItem("Cheese Pizza", "LUNCH ENTREE")])]
     monkeypatch.setattr(
@@ -85,8 +88,8 @@ def test_week_planner_readback_owns_the_complete_week_response(monkeypatch, tmp_
 
 def test_readback_presents_pending_published_and_make_at_home_states(tmp_path):
     db_path = tmp_path / "publication-state.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         kid_ids = {
             row["name"]: row["id"] for row in conn.execute("SELECT id, name FROM kids").fetchall()
         }
@@ -97,7 +100,7 @@ def test_readback_presents_pending_published_and_make_at_home_states(tmp_path):
             """,
             [
                 (kid_ids["Parker"], "CHEESE PIZZA", "2026-08-24T12:00:00", "sitting-1"),
-                (kid_ids["Kylee"], db.MAKE_AT_HOME, "2026-08-24T12:00:00", None),
+                (kid_ids["Kylee"], MAKE_AT_HOME, "2026-08-24T12:00:00", None),
             ],
         )
         conn.commit()

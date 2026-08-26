@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from datetime import date
 
-import database_support as db
-
 from lunch_planner.menu_catalog.display import MenuItemDisplay, cased_menu_item
 from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
+from lunch_planner.menu_catalog.persistence import set_menu_override
 from lunch_planner.menu_catalog.readback import MenuCatalogReadback
+from lunch_planner.persistence.connection import get_db
+from lunch_planner.persistence.schema import init_db
 from lunch_planner.planner.models import MAKE_AT_HOME
 from lunch_planner.school_menu.models import DayMenu, MenuItem, SchoolCafeConfig
 from lunch_planner.school_menu.week_menu import WeekMenu
@@ -40,8 +41,8 @@ class TestDisplayRule:
         assert display.display("CHEESE PIZZA") == "Cheese Pizza"
 
     def test_passthrough_values_are_returned_untouched(self):
-        display = MenuItemDisplay({}, passthrough=(db.MAKE_AT_HOME,))
-        assert display.display(db.MAKE_AT_HOME) == db.MAKE_AT_HOME
+        display = MenuItemDisplay({}, passthrough=(MAKE_AT_HOME,))
+        assert display.display(MAKE_AT_HOME) == MAKE_AT_HOME
 
     def test_empty_text_is_returned_untouched(self):
         assert MenuItemDisplay({"": "x"}).display("") == ""
@@ -49,8 +50,8 @@ class TestDisplayRule:
 
 def test_display_text_read_loads_current_overrides_and_planner_passthrough(tmp_path):
     db_path = tmp_path / "display-read.db"
-    db.init_db(db_path)
-    db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
+    init_db(db_path)
+    set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
 
     display = MenuItemDisplayRead.read(db_path, passthrough=(MAKE_AT_HOME,))
 
@@ -103,8 +104,8 @@ class TestDisplayConsumersAgree:
 
     def test_week_menu_matches_persisted_display_text(self, tmp_path):
         db_path = tmp_path / "display.db"
-        db.init_db(db_path)
-        db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
+        init_db(db_path)
+        set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
 
         class Source:
             def config(self):
@@ -122,8 +123,8 @@ class TestDisplayConsumersAgree:
 
     def test_admin_catalog_matches_persisted_display_text(self, tmp_path):
         db_path = tmp_path / "display.db"
-        db.init_db(db_path)
-        with db.get_db(db_path) as conn:
+        init_db(db_path)
+        with get_db(db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO menu_items (menu_date, description, category, week_start, fetched_at)
@@ -131,7 +132,7 @@ class TestDisplayConsumersAgree:
                 """
             )
             conn.commit()
-        db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
+        set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
 
         from_admin = MenuCatalogReadback.read(db_path).items[0]["display_description"]
         from_display_read = MenuItemDisplayRead.read(db_path).display("CHEESE PIZZA")

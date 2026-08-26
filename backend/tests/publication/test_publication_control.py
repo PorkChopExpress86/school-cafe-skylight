@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from datetime import date
 
-import database_support as db
 from conftest import FakeSkylightClient
 
+from lunch_planner.persistence.connection import get_db
+from lunch_planner.persistence.schema import init_db
 from lunch_planner.publication.control import PublicationControl
 
 
 def test_control_returns_normalized_publication_and_refreshed_readback(tmp_path):
     db_path = tmp_path / "publication-control.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -39,7 +40,7 @@ def test_control_returns_normalized_publication_and_refreshed_readback(tmp_path)
 
 def test_control_reports_missing_frame_without_logging_in(tmp_path):
     db_path = tmp_path / "publication-control.db"
-    db.init_db(db_path)
+    init_db(db_path)
     login_called = False
 
     def login():
@@ -47,7 +48,7 @@ def test_control_reports_missing_frame_without_logging_in(tmp_path):
         login_called = True
         raise AssertionError("login should not run without a frame")
 
-    with db.get_db(db_path) as conn:
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
@@ -85,8 +86,8 @@ def test_day_route_keeps_readback_when_frame_is_missing(client, app_module, monk
 
 def test_control_reports_multi_date_make_at_home_and_partial_outcomes(tmp_path):
     db_path = tmp_path / "publication-control.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         kylee_id = conn.execute("SELECT id FROM kids WHERE name = 'Kylee'").fetchone()["id"]
         conn.executemany(
@@ -127,8 +128,8 @@ def test_control_reports_multi_date_make_at_home_and_partial_outcomes(tmp_path):
 
 def test_control_preserves_unowned_sittings(tmp_path):
     db_path = tmp_path / "publication-control.db"
-    db.init_db(db_path)
-    with db.get_db(db_path) as conn:
+    init_db(db_path)
+    with get_db(db_path) as conn:
         parker_id = conn.execute("SELECT id FROM kids WHERE name = 'Parker'").fetchone()["id"]
         conn.execute(
             "INSERT INTO selections (kid_id, menu_date, selection) VALUES (?, ?, ?)",
