@@ -42,28 +42,93 @@ function weekdayOffset(month: string): number {
   return new Date(year, monthNumber - 1, 1).getDay()
 }
 
+function shiftDate(menuDate: string, amount: number): string {
+  const [year, month, day] = menuDate.split("-").map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + amount))
+  return date.toISOString().slice(0, 10)
+}
+
+function shortDateLabel(menuDate: string): string {
+  return new Date(`${menuDate}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+interface CalendarCell {
+  menuDate: string
+  isCurrentMonth: boolean
+}
+
+function calendarCells(month: string): CalendarCell[] {
+  const dates = monthDates(month)
+  const leadingDays = weekdayOffset(month)
+  const leadingCells = Array.from({ length: leadingDays }, (_, index) => ({
+    menuDate: shiftDate(dates[0], index - leadingDays),
+    isCurrentMonth: false,
+  }))
+  const currentCells = dates.map((menuDate) => ({ menuDate, isCurrentMonth: true }))
+  const trailingDays = (7 - ((leadingCells.length + currentCells.length) % 7)) % 7
+  const trailingCells = Array.from({ length: trailingDays }, (_, index) => ({
+    menuDate: shiftDate(dates.at(-1) ?? dates[0], index + 1),
+    isCurrentMonth: false,
+  }))
+
+  return [...leadingCells, ...currentCells, ...trailingCells]
+}
+
+function kidShortLabels(kids: Kid[]): Record<number, string> {
+  const firstNames = new Map(kids.map((kid) => [kid.id, kid.name.trim().split(/\s+/)[0] || kid.name]))
+
+  return Object.fromEntries(kids.map((kid) => {
+    const firstName = firstNames.get(kid.id) ?? kid.name
+    const characters = Array.from(firstName)
+    const firstCharacter = characters[0] ?? "?"
+
+    for (let length = 1; length <= characters.length; length += 1) {
+      const label = characters.slice(0, length).join("")
+      const isUnique = kids.every((otherKid) => {
+        if (otherKid.id === kid.id) return true
+        const otherName = firstNames.get(otherKid.id) ?? otherKid.name
+        return !otherName.toLocaleLowerCase().startsWith(label.toLocaleLowerCase())
+      })
+      if (isUnique) return [kid.id, label]
+    }
+
+    return [kid.id, `${firstCharacter}${kid.id}`]
+  }))
+}
+
 interface KidMarkerProps {
   kid: Kid
+  shortLabel: string
   state: SelectionPublicationState | undefined
 }
 
-function KidMarker({ kid, state }: KidMarkerProps) {
-  if (!state) {
-    return (
-      <span aria-label={`${kid.name}: No selection`} className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-700 text-[10px] font-bold text-slate-500">
-        {kid.name[0]}
-      </span>
-    )
-  }
+function KidMarker({ kid, shortLabel, state }: KidMarkerProps) {
+  const status = state ? STATUS_LABELS[state] : "No selection"
+  const className = state
+    ? `inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1 text-[10px] font-bold ${STATUS_CLASSES[state]}`
+    : "inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-slate-700 px-1 text-[10px] font-bold text-slate-500"
 
   return (
-    <span
-      aria-label={`${kid.name}: ${STATUS_LABELS[state]}`}
-      className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-bold ${STATUS_CLASSES[state]}`}
-      style={{ backgroundColor: `${kid.color}33` }}
-    >
-      {kid.name[0]}
+    <span aria-label={`${kid.name}: ${status}`} className={className} role="img" style={state ? { backgroundColor: `${kid.color}33` } : undefined}>
+      {shortLabel}
     </span>
+  )
+}
+
+interface AdjacentMonthDayProps {
+  menuDate: string
+}
+
+function AdjacentMonthDay({ menuDate }: AdjacentMonthDayProps) {
+  return (
+    <article aria-label={`${shortDateLabel(menuDate)} (adjacent month)`} className="min-h-24 rounded-lg border border-slate-900 bg-slate-950/20 p-2 text-slate-700 opacity-70">
+      <time dateTime={menuDate} className="text-xs font-bold">{Number(menuDate.slice(-2))}</time>
+      <span className="sr-only">Adjacent month</span>
+    </article>
   )
 }
 
@@ -71,23 +136,24 @@ interface CalendarDayProps {
   menuDate: string
   availability: SchoolMenuAvailability
   kids: Kid[]
+  kidLabels: Record<number, string>
   selections: Record<number, { publication_state: SelectionPublicationState }>
   picked: number
   totalKids: number
   isToday: boolean
 }
 
-function CalendarDay({ menuDate, availability, kids, selections, picked, totalKids, isToday }: CalendarDayProps) {
+function CalendarDay({ menuDate, availability, kids, kidLabels, selections, picked, totalKids, isToday }: CalendarDayProps) {
   const className = `min-h-24 rounded-lg border p-2 transition-colors ${isToday ? "border-amber-400 bg-amber-950/30" : AVAILABILITY_CLASSES[availability]}`
   const content = (
     <>
       <div className="flex items-center justify-between gap-1">
         <time dateTime={menuDate} className="text-xs font-bold text-slate-300">{Number(menuDate.slice(-2))}</time>
-        <span className="text-[10px] text-slate-500">{picked}/{totalKids} picked</span>
+        {totalKids > 0 && <span className="text-[10px] text-slate-500">{picked}/{totalKids} picked</span>}
       </div>
       <span className="mt-1 block text-[10px] font-semibold text-slate-500">{AVAILABILITY_LABELS[availability]}</span>
       <div className="mt-2 flex flex-wrap gap-1">
-        {kids.map((kid) => <KidMarker key={kid.id} kid={kid} state={selections[kid.id]?.publication_state} />)}
+        {kids.map((kid) => <KidMarker key={kid.id} kid={kid} shortLabel={kidLabels[kid.id]} state={selections[kid.id]?.publication_state} />)}
       </div>
     </>
   )
@@ -106,18 +172,29 @@ function freshnessLabel(value: string): string {
 export default function CalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedMonth = searchParams.get("month") ?? undefined
-  const { data, isLoading, error } = useMonth(requestedMonth)
+  const { data, isLoading, error, refetch } = useMonth(requestedMonth)
 
   if (isLoading) {
     return <div className="min-h-screen bg-slate-950 p-6 text-slate-300">Loading lunch calendar...</div>
   }
 
   if (error || !data) {
-    return <div className="min-h-screen bg-slate-950 p-6 text-red-200">Could not load the lunch calendar.</div>
+    return (
+      <div className="min-h-screen bg-slate-950 p-6 text-red-200">
+        <div role="alert" className="mx-auto max-w-xl rounded-xl border border-red-800/80 bg-red-950/80 p-4 shadow-lg">
+          <p className="font-semibold text-red-100">Could not load the lunch calendar.</p>
+          <p className="mt-1 text-sm">{error instanceof Error ? error.message : "Network error"}</p>
+          <button onClick={() => void refetch()} className="mt-4 rounded-lg border border-red-500/70 bg-red-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-800">
+            Try again
+          </button>
+        </div>
+      </div>
+    )
   }
 
-  const dates = monthDates(data.month)
+  const cells = calendarCells(data.month)
   const totalKids = data.kids.length
+  const kidLabels = kidShortLabels(data.kids)
   const hasAvailableMenu = Object.values(data.availability).some((availability) => availability === "available")
   const handleMonthChange = (month: string) => setSearchParams({ month })
 
@@ -152,12 +229,16 @@ export default function CalendarPage() {
               </button>
             </nav>
           </div>
-          <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-bold uppercase tracking-wide text-slate-500">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday) => <span key={weekday}>{weekday}</span>)}
-          </div>
-          <div className="mt-2 grid grid-cols-7 gap-1">
-            {Array.from({ length: weekdayOffset(data.month) }, (_, index) => <div key={`blank-${index}`} />)}
-            {dates.map((menuDate) => {
+          <div aria-describedby="calendar-scroll-help" aria-label="Monthly lunch calendar" className="mt-4 overflow-x-auto pb-1" data-testid="calendar-scroll-region" role="region" tabIndex={0}>
+            <p id="calendar-scroll-help" className="sr-only">Scroll horizontally to view all seven calendar days on smaller screens.</p>
+            <div className="min-w-[42rem]" data-testid="calendar-grid">
+              <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold uppercase tracking-wide text-slate-500">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday) => <span key={weekday}>{weekday}</span>)}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-1">
+                {cells.map(({ menuDate, isCurrentMonth }) => {
+                  if (!isCurrentMonth) return <AdjacentMonthDay key={menuDate} menuDate={menuDate} />
+
               const selections = data.selections[menuDate] ?? {}
               const picked = data.day_totals[menuDate] ?? 0
               return (
@@ -166,15 +247,24 @@ export default function CalendarPage() {
                   menuDate={menuDate}
                   availability={data.availability[menuDate] ?? "menu_unavailable"}
                   kids={data.kids}
+                  kidLabels={kidLabels}
                   selections={selections}
                   picked={picked}
                   totalKids={totalKids}
                   isToday={menuDate === data.today}
                 />
               )
-            })}
+                })}
+              </div>
+            </div>
           </div>
         </section>
+
+        {totalKids === 0 && (
+          <p className="rounded-xl border border-amber-800/70 bg-amber-950/60 p-4 text-sm text-amber-100" role="status">
+            No Kids have been added yet. Add a Kid before choosing lunches.
+          </p>
+        )}
 
         <p className="text-sm text-slate-400">
           {data.menu_catalog_freshness

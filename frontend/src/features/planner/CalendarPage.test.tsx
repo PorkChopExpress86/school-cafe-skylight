@@ -156,6 +156,73 @@ describe("Month Planner Readback calendar", () => {
     )).toBeTruthy()
   })
 
+  it("keeps a scrollable seven-column grid and mutes adjacent-month dates", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(MONTH_RESPONSE), { headers: { "Content-Type": "application/json" } })),
+    )
+
+    renderCalendarPage()
+
+    expect((await screen.findByTestId("calendar-scroll-region")).className).toContain("overflow-x-auto")
+    expect(screen.getByTestId("calendar-grid").className).toContain("min-w-[42rem]")
+    expect(screen.getByLabelText("Jul 26, 2026 (adjacent month)")).toBeTruthy()
+    expect(screen.queryByRole("link", { name: "Open week of 2026-07-26" })).toBeNull()
+  })
+
+  it("uses unique visible identities for Kids with matching initials and exposes full status text", async () => {
+    const matchingInitialsResponse = {
+      ...MONTH_RESPONSE,
+      kids: [
+        { id: 1, name: "Parker", color: "#3B82F6", prefix: "P-" },
+        { id: 2, name: "Peyton", color: "#EC4899", prefix: "P-" },
+      ],
+      selections: {
+        "2026-08-12": {
+          1: { selection: "Cheese Pizza", sent_at: null, sent_sitting_id: null, publication_state: "pending" },
+          2: { selection: "Chicken Tenders", sent_at: null, sent_sitting_id: null, publication_state: "pending" },
+        },
+      },
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(matchingInitialsResponse), { headers: { "Content-Type": "application/json" } })),
+    )
+
+    renderCalendarPage()
+
+    expect((await screen.findByRole("img", { name: "Parker: Pending" })).textContent).toBe("Pa")
+    expect(screen.getByRole("img", { name: "Peyton: Pending" }).textContent).toBe("Pe")
+  })
+
+  it("explains the no-Kid state without claiming selections can be made", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ...MONTH_RESPONSE, kids: [] }), { headers: { "Content-Type": "application/json" } })),
+    )
+
+    renderCalendarPage()
+
+    expect(await screen.findByText("No Kids have been added yet. Add a Kid before choosing lunches.")).toBeTruthy()
+    expect(screen.queryByText("0/0 picked")).toBeNull()
+  })
+
+  it("replaces calendar data with a retryable error when loading fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Offline"))
+      .mockResolvedValueOnce(new Response(JSON.stringify(MONTH_RESPONSE), { headers: { "Content-Type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    renderCalendarPage()
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not load the lunch calendar")
+    expect(screen.queryByText("August 2026")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(await screen.findByText("August 2026")).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it("loads the selected available date in the week planner", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       week: [], kids: [], selections: {}, day_totals: {}, day_sent: {}, history: [],
