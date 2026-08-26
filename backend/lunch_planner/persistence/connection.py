@@ -20,14 +20,6 @@ def configured_database_path(environment: Mapping[str, str] | None = None) -> Pa
 
 DEFAULT_DB_PATH = configured_database_path()
 
-MAKE_AT_HOME = "__MAKE_AT_HOME__"
-HISTORY_RETENTION = 500
-
-DEFAULT_KIDS = [
-    {"name": "Parker", "color": "#3B82F6", "prefix": "P-"},
-    {"name": "Kylee", "color": "#EC4899", "prefix": "K-"},
-]
-
 
 @contextmanager
 def get_db(db_path: Path | None = None):

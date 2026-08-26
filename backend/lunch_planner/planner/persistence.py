@@ -6,22 +6,18 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from lunch_planner.menu_catalog.display import MenuItemDisplay
-from lunch_planner.menu_catalog.persistence import fetch_all_overrides
 from lunch_planner.persistence.connection import get_db
+from lunch_planner.planner.models import HISTORY_RETENTION, MAKE_AT_HOME
 
 __all__ = [
     "MAKE_AT_HOME",
-    "fetch_all_overrides",
     "fetch_recent_history",
-    "get_db",
+    "load_kids",
+    "load_planner_state",
     "load_selections",
     "log_history",
-    "resolve_display_text",
+    "persist_selection_change",
 ]
-
-MAKE_AT_HOME = "__MAKE_AT_HOME__"
-HISTORY_RETENTION = 500
 
 def log_history(
     conn: sqlite3.Connection,
@@ -64,6 +60,13 @@ def fetch_recent_history(conn: sqlite3.Connection, limit: int = 20) -> list[dict
     return [dict(r) for r in rows]
 
 
+def load_kids(db_path: Path) -> list[dict]:
+    """Return the family's Kids in stable planner order."""
+    with get_db(db_path) as conn:
+        rows = conn.execute("SELECT id, name, color, prefix FROM kids ORDER BY id").fetchall()
+    return [dict(row) for row in rows]
+
+
 def load_selections(
     conn: sqlite3.Connection, dates: list[str]
 ) -> dict[str, dict[int, dict]]:
@@ -86,17 +89,33 @@ def load_selections(
     return out
 
 
-def resolve_display_text(
-    text: str, overrides: dict[str, str] | None = None, db_path: Path | None = None
-) -> str:
-    """Resolve a stored Selection to its display text.
+def load_planner_state(
+    db_path: Path, dates: list[str]
+) -> tuple[dict[str, dict[int, dict]], list[dict]]:
+    """Return stored Selections and recent history for one Planner Readback."""
+    with get_db(db_path) as conn:
+        return load_selections(conn, dates), fetch_recent_history(conn)
 
-    A thin Selection-flavoured entry point onto the Menu Item Display module:
-    it knows the Make at Home sentinel is not a menu item, and where the
-    override table lives. The rule itself lives in menu_item_display.
-    """
-    if overrides is None:
-        overrides = fetch_all_overrides(db_path)
-    return MenuItemDisplay(overrides, passthrough=(MAKE_AT_HOME,)).display(text)
+
+def persist_selection_change(db_path: Path, kid_id: int, menu_date: str, selection: str) -> bool:
+    """Persist one Selection Change and its history, returning whether the Kid exists."""
+    with get_db(db_path) as conn:
+        kid = conn.execute("SELECT name FROM kids WHERE id = ?", (kid_id,)).fetchone()
+        if kid is None:
+            return False
+        conn.execute(
+            """
+            INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
+            VALUES (?, ?, ?, NULL, NULL)
+            ON CONFLICT(kid_id, menu_date) DO UPDATE
+                SET selection = excluded.selection,
+                    sent_at = NULL,
+                    sent_sitting_id = NULL
+            """,
+            (kid_id, menu_date, selection),
+        )
+        log_history(conn, kid["name"], menu_date, selection, "Selected")
+        conn.commit()
+    return True
 
 

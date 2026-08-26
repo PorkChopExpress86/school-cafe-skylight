@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.planner import persistence as db
+from lunch_planner.planner.models import MAKE_AT_HOME
 from lunch_planner.planner.readback import PlannerReadback
 
 
@@ -32,25 +34,10 @@ class SelectionChange:
 
     def apply(self, kid_id: int, menu_date: str, selection: str) -> SelectionChangeResult:
         """Apply one validated Selection Change using the current Display Text rule."""
-        overrides = db.fetch_all_overrides(self._db_path)
-        display_selection = db.resolve_display_text(selection, overrides)
-        with db.get_db(self._db_path) as conn:
-            kid = conn.execute("SELECT name FROM kids WHERE id = ?", (kid_id,)).fetchone()
-            if kid is None:
-                raise UnknownKidError(kid_id)
-            conn.execute(
-                """
-                INSERT INTO selections (kid_id, menu_date, selection, sent_at, sent_sitting_id)
-                VALUES (?, ?, ?, NULL, NULL)
-                ON CONFLICT(kid_id, menu_date) DO UPDATE
-                    SET selection = excluded.selection,
-                        sent_at = NULL,
-                        sent_sitting_id = NULL
-                """,
-                (kid_id, menu_date, display_selection),
-            )
-            db.log_history(conn, kid["name"], menu_date, display_selection, "Selected")
-            conn.commit()
+        display = MenuItemDisplayRead.read(self._db_path, passthrough=(MAKE_AT_HOME,))
+        display_selection = display.display(selection)
+        if not db.persist_selection_change(self._db_path, kid_id, menu_date, display_selection):
+            raise UnknownKidError(kid_id)
 
         readback = PlannerReadback.read(self._db_path, [menu_date])
         return SelectionChangeResult(kid_id, menu_date, display_selection, None, readback)

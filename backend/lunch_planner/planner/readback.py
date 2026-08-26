@@ -7,7 +7,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.planner import persistence as db
+from lunch_planner.planner.models import MAKE_AT_HOME
 from lunch_planner.school_menu.school_cafe_adapter import get_week_dates
 from lunch_planner.school_menu.week_menu import read_week_menu
 
@@ -27,12 +29,10 @@ class PlannerReadback:
     def read(cls, db_path: Path, dates: list[str]) -> PlannerReadback:
         """Read one display-resolved planner state after a completed write or publication."""
         requested_dates = list(dict.fromkeys(dates))
-        overrides = db.fetch_all_overrides(db_path)
-        with db.get_db(db_path) as conn:
-            selections = db.load_selections(conn, requested_dates)
-            history = db.fetch_recent_history(conn)
+        display = MenuItemDisplayRead.read(db_path, passthrough=(MAKE_AT_HOME,))
+        selections, history = db.load_planner_state(db_path, requested_dates)
 
-        _resolve_display_text(selections, history, overrides)
+        _resolve_display_text(selections, history, display)
         _present_selection_publication_state(selections)
         day_totals, day_sent = _compute_day_counts(selections, requested_dates)
         return cls(selections, day_totals, day_sent, history)
@@ -66,11 +66,7 @@ class WeekPlannerReadback:
         menu = read_week_menu(ref, db_path)
         dates = [menu_date.isoformat() for menu_date in get_week_dates(ref)]
         planner = PlannerReadback.read(db_path, dates)
-        with db.get_db(db_path) as conn:
-            kids = [
-                dict(row)
-                for row in conn.execute("SELECT id, name, color, prefix FROM kids ORDER BY id").fetchall()
-            ]
+        kids = db.load_kids(db_path)
         return cls(
             week=[
                 {
@@ -111,15 +107,15 @@ class WeekPlannerReadback:
 
 
 def _resolve_display_text(
-    selections: dict[str, dict[int, dict]], history: list[dict], overrides: dict[str, str]
+    selections: dict[str, dict[int, dict]], history: list[dict], display: MenuItemDisplayRead
 ) -> None:
     for kid_map in selections.values():
         for state in kid_map.values():
             if state.get("selection"):
-                state["selection"] = db.resolve_display_text(state["selection"], overrides)
+                state["selection"] = display.display(state["selection"])
     for entry in history:
         if entry.get("selection"):
-            entry["selection"] = db.resolve_display_text(entry["selection"], overrides)
+            entry["selection"] = display.display(entry["selection"])
 
 
 def _compute_day_counts(
@@ -151,6 +147,6 @@ def _selection_publication_state(
 ) -> SelectionPublicationState:
     if sent_sitting_id:
         return "published"
-    if sent_at and selection == db.MAKE_AT_HOME:
+    if sent_at and selection == MAKE_AT_HOME:
         return "make_at_home"
     return "pending"

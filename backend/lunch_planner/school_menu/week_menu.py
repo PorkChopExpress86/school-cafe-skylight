@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from lunch_planner.menu_catalog import persistence as db
-from lunch_planner.menu_catalog.display import MenuItemDisplay
+from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig, get_week_dates
 from lunch_planner.school_menu.source import SchoolCafeMenuSource, SchoolMenuSource
 
@@ -57,8 +56,8 @@ class WeekMenu:
                 return WeekMenuRead(None, config, f"{type(exc).__name__}: {exc}")
             self._store_week(config, monday, source_week)
 
-        overrides = db.fetch_all_overrides(db_path)
-        return WeekMenuRead(_display_week(source_week, overrides), config)
+        display = MenuItemDisplayRead.read(db_path)
+        return WeekMenuRead(_display_week(source_week, display), config)
 
     def _cached_week(self, config: SchoolCafeConfig, monday: date) -> list[DayMenu] | None:
         key = (config, monday.isoformat())
@@ -78,8 +77,7 @@ class WeekMenu:
         self._cache[(config, monday.isoformat())] = (self._clock() + _CACHE_TTL_SECONDS, week)
 
 
-def _display_week(week: list[DayMenu], overrides: dict[str, str]) -> list[DayMenu]:
-    display = MenuItemDisplay(overrides)
+def _display_week(week: list[DayMenu], display: MenuItemDisplayRead) -> list[DayMenu]:
     return [
         DayMenu(
             date=day.date,

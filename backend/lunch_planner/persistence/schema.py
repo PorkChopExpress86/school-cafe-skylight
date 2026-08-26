@@ -6,14 +6,15 @@ import sqlite3
 from pathlib import Path
 
 from lunch_planner.persistence.connection import DEFAULT_DB_PATH, get_db
+from lunch_planner.planner.models import (
+    DEFAULT_KIDS,
+    derive_kid_prefix,
+    unique_kid_prefix,
+)
 
-MAKE_AT_HOME = "__MAKE_AT_HOME__"
-HISTORY_RETENTION = 500
+_derive_kid_prefix = derive_kid_prefix
+_unique_prefix = unique_kid_prefix
 
-DEFAULT_KIDS = [
-    {"name": "Parker", "color": "#3B82F6", "prefix": "P-"},
-    {"name": "Kylee", "color": "#EC4899", "prefix": "K-"},
-]
 
 def init_menu_tables(conn: sqlite3.Connection) -> None:
     """Create menu cache, override, and sync log tables (idempotent)."""
@@ -54,32 +55,11 @@ def init_menu_tables(conn: sqlite3.Connection) -> None:
     )
 
 
-def _derive_kid_prefix(kid_name: str) -> str:
-    """Best-effort prefix for a kid with none stored, e.g. "Parker" -> "P-".
-
-    Returns "?-" rather than raising for a name with no usable character.
-    """
-    initial = next((c for c in kid_name.strip().upper() if c.isalnum()), "")
-    return f"{initial}-" if initial else "?-"
-
-
-def _unique_prefix(base: str, taken: set[str]) -> str:
-    """Disambiguate `base` against already-assigned prefixes."""
-    if base.lower() not in taken:
-        return base
-    stem = base.rstrip("-")
-    for n in range(2, 100):
-        candidate = f"{stem}{n}-"
-        if candidate.lower() not in taken:
-            return candidate
-    return base
-
-
 def _backfill_kid_prefixes(conn: sqlite3.Connection) -> None:
     """Give every kid a non-empty, unique prefix."""
     rows = conn.execute("SELECT id, name, prefix FROM kids ORDER BY id").fetchall()
     taken = {r["prefix"].strip().lower() for r in rows if (r["prefix"] or "").strip()}
-    defaults = {k["name"]: k["prefix"] for k in DEFAULT_KIDS}
+    defaults = {kid.name: kid.prefix for kid in DEFAULT_KIDS}
     for r in rows:
         if (r["prefix"] or "").strip():
             continue
@@ -134,7 +114,7 @@ def init_db(db_path: Path | None = None) -> None:
         for kid in DEFAULT_KIDS:
             conn.execute(
                 "INSERT OR IGNORE INTO kids (name, color, prefix) VALUES (?, ?, ?)",
-                (kid["name"], kid["color"], kid["prefix"]),
+                (kid.name, kid.color, kid.prefix),
             )
         _backfill_kid_prefixes(conn)
         init_menu_tables(conn)

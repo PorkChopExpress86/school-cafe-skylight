@@ -15,7 +15,9 @@ from datetime import date
 import database_support as db
 
 from lunch_planner.menu_catalog.display import MenuItemDisplay, cased_menu_item
+from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.menu_catalog.readback import MenuCatalogReadback
+from lunch_planner.planner.models import MAKE_AT_HOME
 from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig
 from lunch_planner.school_menu.week_menu import WeekMenu
 
@@ -43,6 +45,17 @@ class TestDisplayRule:
 
     def test_empty_text_is_returned_untouched(self):
         assert MenuItemDisplay({"": "x"}).display("") == ""
+
+
+def test_display_text_read_loads_current_overrides_and_planner_passthrough(tmp_path):
+    db_path = tmp_path / "display-read.db"
+    db.init_db(db_path)
+    db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
+
+    display = MenuItemDisplayRead.read(db_path, passthrough=(MAKE_AT_HOME,))
+
+    assert display.display("CHEESE PIZZA") == "Cheese Pizza (Veggie)"
+    assert display.display(MAKE_AT_HOME) == MAKE_AT_HOME
 
 
 class TestCasingRule:
@@ -77,10 +90,8 @@ class TestCasingRule:
         assert first == second == "Hot Dog"
 
 
-class TestPathsAgree:
+class TestDisplayConsumersAgree:
     """Every path resolves the same raw text to the same display text."""
-
-    OVERRIDES = {"Cheese Pizza": "Cheese Pizza (Veggie)"}
 
     def _week(self) -> list[DayMenu]:
         return [
@@ -90,7 +101,7 @@ class TestPathsAgree:
             )
         ]
 
-    def test_week_path_matches_the_selection_path(self, tmp_path):
+    def test_week_menu_matches_persisted_display_text(self, tmp_path):
         db_path = tmp_path / "display.db"
         db.init_db(db_path)
         db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
@@ -106,10 +117,10 @@ class TestPathsAgree:
         read = WeekMenu(Source()).read(date(2026, 8, 12), db_path)
         assert read.days is not None
         from_week = read.days[0].items[0].description
-        from_selection = db.resolve_display_text("CHEESE PIZZA", self.OVERRIDES)
-        assert from_week == from_selection == "Cheese Pizza (Veggie)"
+        from_display_read = MenuItemDisplayRead.read(db_path).display("CHEESE PIZZA")
+        assert from_week == from_display_read == "Cheese Pizza (Veggie)"
 
-    def test_admin_path_matches_the_selection_path(self, tmp_path):
+    def test_admin_catalog_matches_persisted_display_text(self, tmp_path):
         db_path = tmp_path / "display.db"
         db.init_db(db_path)
         with db.get_db(db_path) as conn:
@@ -123,5 +134,5 @@ class TestPathsAgree:
         db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
 
         from_admin = MenuCatalogReadback.read(db_path).items[0]["display_description"]
-        from_selection = db.resolve_display_text("CHEESE PIZZA", self.OVERRIDES)
-        assert from_admin == from_selection == "Cheese Pizza (Veggie)"
+        from_display_read = MenuItemDisplayRead.read(db_path).display("CHEESE PIZZA")
+        assert from_admin == from_display_read == "Cheese Pizza (Veggie)"
