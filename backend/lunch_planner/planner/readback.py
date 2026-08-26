@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from lunch_planner.menu_catalog import persistence as menu_catalog_db
 from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.planner import persistence as db
 from lunch_planner.planner.models import MAKE_AT_HOME
@@ -16,6 +17,7 @@ from lunch_planner.school_menu.models import get_week_dates
 from lunch_planner.school_menu.week_menu import read_week_menu
 
 SelectionPublicationState = Literal["pending", "published", "make_at_home"]
+SchoolMenuAvailability = Literal["available", "menu_unavailable", "non_school"]
 _SCHOOL_TIME_ZONE = ZoneInfo("America/Chicago")
 
 
@@ -120,6 +122,8 @@ class MonthPlannerReadback:
     prev_month: str
     next_month: str
     current_month: str
+    availability: dict[str, SchoolMenuAvailability]
+    menu_catalog_freshness: str | None
 
     @classmethod
     def read(
@@ -128,14 +132,18 @@ class MonthPlannerReadback:
         """Read one normalized School Date month without requesting any remote menu data."""
         current_date = current_date or _school_today()
         reference_month = _month_reference(requested_month, current_date)
+        month_dates = _month_dates(reference_month)
+        known_menu_dates = menu_catalog_db.fetch_menu_dates(month_dates[0], month_dates[-1], db_path)
         return cls(
             month=reference_month.strftime("%Y-%m"),
             kids=db.load_kids(db_path),
-            planner=PlannerReadback.read(db_path, _month_dates(reference_month)),
+            planner=PlannerReadback.read(db_path, month_dates),
             today=current_date.isoformat(),
             prev_month=_shift_month(reference_month, -1).strftime("%Y-%m"),
             next_month=_shift_month(reference_month, 1).strftime("%Y-%m"),
             current_month=current_date.strftime("%Y-%m"),
+            availability=_menu_availability(month_dates, known_menu_dates),
+            menu_catalog_freshness=menu_catalog_db.fetch_last_successful_sync(db_path),
         )
 
     def as_payload(self) -> dict:
@@ -150,6 +158,8 @@ class MonthPlannerReadback:
             "prev_month": self.prev_month,
             "next_month": self.next_month,
             "current_month": self.current_month,
+            "availability": self.availability,
+            "menu_catalog_freshness": self.menu_catalog_freshness,
         }
 
 
@@ -169,6 +179,20 @@ def _month_reference(requested_month: str | None, current_date: date) -> date:
 def _shift_month(reference_month: date, offset: int) -> date:
     month_index = reference_month.year * 12 + reference_month.month - 1 + offset
     return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def _menu_availability(
+    dates: list[str], known_menu_dates: set[str]
+) -> dict[str, SchoolMenuAvailability]:
+    availability: dict[str, SchoolMenuAvailability] = {}
+    for menu_date in dates:
+        if date.fromisoformat(menu_date).weekday() >= 5:
+            availability[menu_date] = "non_school"
+        elif menu_date in known_menu_dates:
+            availability[menu_date] = "available"
+        else:
+            availability[menu_date] = "menu_unavailable"
+    return availability
 
 
 def _month_dates(current_date: date) -> list[str]:

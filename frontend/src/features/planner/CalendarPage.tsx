@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from "react-router-dom"
-import { type Kid, type SelectionPublicationState } from "./types"
+import { type Kid, type SchoolMenuAvailability, type SelectionPublicationState } from "./types"
 import { useMonth } from "./usePlannerApi"
 
 const STATUS_LABELS: Record<SelectionPublicationState, string> = {
@@ -12,6 +12,18 @@ const STATUS_CLASSES: Record<SelectionPublicationState, string> = {
   pending: "border-amber-400 text-amber-200",
   published: "border-sky-400 text-sky-200",
   make_at_home: "border-emerald-400 text-emerald-200",
+}
+
+const AVAILABILITY_LABELS: Record<SchoolMenuAvailability, string> = {
+  available: "Menu available",
+  menu_unavailable: "Menu unavailable",
+  non_school: "Non-school",
+}
+
+const AVAILABILITY_CLASSES: Record<SchoolMenuAvailability, string> = {
+  available: "border-blue-500/70 bg-blue-950/20 hover:border-blue-400",
+  menu_unavailable: "border-slate-800 bg-slate-950/50",
+  non_school: "border-slate-800 bg-slate-950/30 opacity-60",
 }
 
 function monthDates(month: string): string[] {
@@ -55,6 +67,42 @@ function KidMarker({ kid, state }: KidMarkerProps) {
   )
 }
 
+interface CalendarDayProps {
+  menuDate: string
+  availability: SchoolMenuAvailability
+  kids: Kid[]
+  selections: Record<number, { publication_state: SelectionPublicationState }>
+  picked: number
+  totalKids: number
+  isToday: boolean
+}
+
+function CalendarDay({ menuDate, availability, kids, selections, picked, totalKids, isToday }: CalendarDayProps) {
+  const className = `min-h-24 rounded-lg border p-2 transition-colors ${isToday ? "border-amber-400 bg-amber-950/30" : AVAILABILITY_CLASSES[availability]}`
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-1">
+        <time dateTime={menuDate} className="text-xs font-bold text-slate-300">{Number(menuDate.slice(-2))}</time>
+        <span className="text-[10px] text-slate-500">{picked}/{totalKids} picked</span>
+      </div>
+      <span className="mt-1 block text-[10px] font-semibold text-slate-500">{AVAILABILITY_LABELS[availability]}</span>
+      <div className="mt-2 flex flex-wrap gap-1">
+        {kids.map((kid) => <KidMarker key={kid.id} kid={kid} state={selections[kid.id]?.publication_state} />)}
+      </div>
+    </>
+  )
+
+  if (availability === "available") {
+    return <Link to={`/?date=${menuDate}`} aria-label={`Open week of ${menuDate}`} className={`block ${className}`}>{content}</Link>
+  }
+
+  return <article className={className}>{content}</article>
+}
+
+function freshnessLabel(value: string): string {
+  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+}
+
 export default function CalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedMonth = searchParams.get("month") ?? undefined
@@ -70,6 +118,7 @@ export default function CalendarPage() {
 
   const dates = monthDates(data.month)
   const totalKids = data.kids.length
+  const hasAvailableMenu = Object.values(data.availability).some((availability) => availability === "available")
   const handleMonthChange = (month: string) => setSearchParams({ month })
 
   return (
@@ -111,21 +160,28 @@ export default function CalendarPage() {
             {dates.map((menuDate) => {
               const selections = data.selections[menuDate] ?? {}
               const picked = data.day_totals[menuDate] ?? 0
-              const isToday = menuDate === data.today
               return (
-                <article key={menuDate} className={`min-h-24 rounded-lg border p-2 ${isToday ? "border-amber-400 bg-amber-950/30" : "border-slate-800 bg-slate-950/50"}`}>
-                  <div className="flex items-center justify-between gap-1">
-                    <time dateTime={menuDate} className="text-xs font-bold text-slate-300">{Number(menuDate.slice(-2))}</time>
-                    <span className="text-[10px] text-slate-500">{picked}/{totalKids} picked</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {data.kids.map((kid) => <KidMarker key={kid.id} kid={kid} state={selections[kid.id]?.publication_state} />)}
-                  </div>
-                </article>
+                <CalendarDay
+                  key={menuDate}
+                  menuDate={menuDate}
+                  availability={data.availability[menuDate] ?? "menu_unavailable"}
+                  kids={data.kids}
+                  selections={selections}
+                  picked={picked}
+                  totalKids={totalKids}
+                  isToday={menuDate === data.today}
+                />
               )
             })}
           </div>
         </section>
+
+        <p className="text-sm text-slate-400">
+          {data.menu_catalog_freshness
+            ? `Menu catalog last refreshed: ${freshnessLabel(data.menu_catalog_freshness)}`
+            : "Menu catalog has not refreshed successfully."}
+          {!hasAvailableMenu && ` No menu currently available for ${monthLabel(data.month)}.`}
+        </p>
 
         <section aria-label="Selection status legend" className="flex flex-wrap gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-xs text-slate-300">
           {(Object.keys(STATUS_LABELS) as SelectionPublicationState[]).map((state) => (

@@ -122,6 +122,37 @@ def fetch_menu_items(db_path: Path | None = None, week_start: str | None = None)
     return [dict(r) for r in rows]
 
 
+def fetch_menu_dates(start_date: str, end_date: str, db_path: Path | None = None) -> set[str]:
+    """Return locally known Menu Catalog dates in one inclusive range."""
+    target_path = db_path if db_path is not None else DEFAULT_DB_PATH
+    with get_db(target_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT menu_date
+            FROM menu_items
+            WHERE menu_date >= ? AND menu_date <= ?
+            """,
+            (start_date, end_date),
+        ).fetchall()
+    return {row["menu_date"] for row in rows}
+
+
+def fetch_last_successful_sync(db_path: Path | None = None) -> str | None:
+    """Return the most recent successful Menu Catalog Refresh time, if any."""
+    target_path = db_path if db_path is not None else DEFAULT_DB_PATH
+    with get_db(target_path) as conn:
+        row = conn.execute(
+            """
+            SELECT attempted_at
+            FROM menu_sync_log
+            WHERE succeeded = 1
+            ORDER BY attempted_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    return row["attempted_at"] if row is not None else None
+
+
 def fetch_distinct_weeks(db_path: Path | None = None) -> list[str]:
     """Return week-start dates for which we have cached menu items."""
     target_path = db_path if db_path is not None else DEFAULT_DB_PATH

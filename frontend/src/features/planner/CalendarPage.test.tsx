@@ -26,6 +26,8 @@ const MONTH_RESPONSE = {
   prev_month: "2026-07",
   next_month: "2026-09",
   current_month: "2026-08",
+  availability: { "2026-08-12": "available", "2026-08-13": "menu_unavailable", "2026-08-15": "non_school" },
+  menu_catalog_freshness: "2026-08-10T03:00:00",
 }
 
 afterEach(() => {
@@ -55,11 +57,11 @@ function renderCalendarPage(initialEntry = "/calendar") {
   )
 }
 
-function renderWeekPage() {
+function renderWeekPage(initialEntry = "/") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const wrapper = ({ children }: PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{children}</MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>
     </QueryClientProvider>
   )
 
@@ -122,5 +124,49 @@ describe("Month Planner Readback calendar", () => {
 
     const calendar = await screen.findByRole("link", { name: "Calendar" })
     expect(calendar.getAttribute("href")).toBe("/calendar?month=2026-09")
+  })
+
+  it("shows local menu availability and opens only an eligible date", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(MONTH_RESPONSE), { headers: { "Content-Type": "application/json" } })),
+    )
+
+    renderCalendarPage()
+
+    expect(await screen.findByText("Menu catalog last refreshed: Aug 10, 2026")).toBeTruthy()
+    expect(screen.getByRole("link", { name: "Open week of 2026-08-12" }).getAttribute("href")).toBe("/?date=2026-08-12")
+    expect(screen.getAllByText("Menu unavailable").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Non-school").length).toBeGreaterThan(0)
+    expect(screen.queryByRole("link", { name: "Open week of 2026-08-13" })).toBeNull()
+  })
+
+  it("explains when the month has no known menu availability", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ...MONTH_RESPONSE, availability: {}, menu_catalog_freshness: null }), {
+        headers: { "Content-Type": "application/json" },
+      })),
+    )
+
+    renderCalendarPage()
+
+    expect(await screen.findByText(
+      "Menu catalog has not refreshed successfully. No menu currently available for August 2026.",
+    )).toBeTruthy()
+  })
+
+  it("loads the selected available date in the week planner", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      week: [], kids: [], selections: {}, day_totals: {}, day_sent: {}, history: [],
+      ref: "2026-08-12", prev_week: "2026-08-05", next_week: "2026-08-19", today: "2026-08-12",
+      school_cfg: null, skylight_cfg: null, menu_error: null,
+    }), { headers: { "Content-Type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    renderWeekPage("/?date=2026-08-12")
+
+    await screen.findByRole("link", { name: "Calendar" })
+    expect(fetchMock).toHaveBeenCalledWith("/api/week?date=2026-08-12", expect.any(Object))
   })
 })

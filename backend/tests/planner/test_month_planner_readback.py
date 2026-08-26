@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from conftest import ENTREES
 
+from lunch_planner.menu_catalog.persistence import log_sync_attempt
+from lunch_planner.menu_catalog.refresh import MenuCatalogRefreshResult
 from lunch_planner.persistence.connection import get_db
 from lunch_planner.planner import readback as planner_readback
 from lunch_planner.planner.models import MAKE_AT_HOME
@@ -50,3 +52,35 @@ def test_month_readback_uses_an_addressable_month_and_safely_falls_back(client, 
     assert september["next_month"] == "2026-10"
     assert september["current_month"] == "2026-08"
     assert invalid["month"] == "2026-08"
+
+
+def test_month_readback_qualifies_dates_from_the_local_menu_catalog_only(
+    app_module, client, kid_ids, monkeypatch
+):
+    monkeypatch.setattr(planner_readback, "_school_today", lambda: date(2026, 8, 12))
+    monkeypatch.setattr(
+        planner_readback,
+        "read_week_menu",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("month readback must not fetch a weekly menu")),
+    )
+    client.post("/api/select", json={"kid_id": kid_ids["Parker"], "menu_date": "2026-08-13", "selection": ENTREES[0]})
+    with get_db(app_module.DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO menu_items (menu_date, description, category, week_start, fetched_at)
+            VALUES ('2026-08-12', 'CHEESE PIZZA', 'LUNCH ENTREE', '2026-08-10', '2026-08-10T03:00:00')
+            """
+        )
+        conn.commit()
+    log_sync_attempt(
+        app_module.DB_PATH,
+        MenuCatalogRefreshResult(datetime(2026, 8, 10, 3), "refreshed", "done", weeks_fetched=4),
+    )
+
+    data = client.get("/api/month?month=2026-08").json()
+
+    assert data["availability"]["2026-08-12"] == "available"
+    assert data["availability"]["2026-08-13"] == "menu_unavailable"
+    assert data["availability"]["2026-08-15"] == "non_school"
+    assert data["selections"]["2026-08-13"][str(kid_ids["Parker"])]["selection"] == "Cheese Pizza"
+    assert data["menu_catalog_freshness"] == "2026-08-10T03:00:00"

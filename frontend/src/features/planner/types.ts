@@ -2,6 +2,7 @@ export const MAKE_AT_HOME = "__MAKE_AT_HOME__"
 
 export interface Kid { id: number; name: string; color: string; prefix: string }
 export type SelectionPublicationState = "pending" | "published" | "make_at_home"
+export type SchoolMenuAvailability = "available" | "menu_unavailable" | "non_school"
 export interface SelectionState { selection: string; sent_at: string | null; sent_sitting_id: string | null; publication_state: SelectionPublicationState }
 export interface DayMenu { date: string; weekday: string; entrees: string[] }
 export interface HistoryItem { id: number; kid_name: string; menu_date: string; selection: string; action: string; created_at: string }
@@ -17,6 +18,7 @@ export interface MonthResponse {
   month: string; today: string; kids: Kid[]; selections: Record<string, Record<number, SelectionState>>
   day_totals: Record<string, number>; day_sent: Record<string, number>
   prev_month: string; next_month: string; current_month: string
+  availability: Record<string, SchoolMenuAvailability>; menu_catalog_freshness: string | null
 }
 export interface SelectResponse { kid_id: number; menu_date: string; selection: string; sent_at: string | null; day_totals: Record<string, number>; day_sent: Record<string, number>; history: HistoryItem[] }
 export type PlannerPublicationStatus = "sent" | "skipped" | "error"

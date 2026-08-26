@@ -1,12 +1,13 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import DaySection from "./DaySection"
 import HistoryPanel from "./HistoryPanel"
 import { useWeek } from "./usePlannerApi"
 import { usePlannerInteraction } from "./usePlannerInteraction"
 
 export default function WeekPage() {
-  const [date, setDate] = useState<string | undefined>(undefined)
+  const [searchParams] = useSearchParams()
+  const [date, setDate] = useState<string | undefined>(searchParams.get("date") ?? undefined)
   const { data, isLoading, error } = useWeek(date)
   const interaction = usePlannerInteraction()
 
