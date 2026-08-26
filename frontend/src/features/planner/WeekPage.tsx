@@ -89,6 +89,12 @@ export default function WeekPage() {
               )}
             </button>
             <nav className="flex items-center gap-2">
+              <Link
+                to="/calendar"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 hover:border-slate-600 transition-all shadow-sm active:scale-95"
+              >
+                Calendar
+              </Link>
               <button
                 onClick={() => setDate(data.prev_week)}
                 className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 hover:border-slate-600 transition-all shadow-sm active:scale-95"

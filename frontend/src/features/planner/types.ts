@@ -13,6 +13,10 @@ export interface WeekResponse {
   ref: string; prev_week: string; next_week: string; today: string
   school_cfg: SchoolConfig | null; skylight_cfg: SkylightConfig | null; menu_error: string | null
 }
+export interface MonthResponse {
+  month: string; today: string; kids: Kid[]; selections: Record<string, Record<number, SelectionState>>
+  day_totals: Record<string, number>; day_sent: Record<string, number>
+}
 export interface SelectResponse { kid_id: number; menu_date: string; selection: string; sent_at: string | null; day_totals: Record<string, number>; day_sent: Record<string, number>; history: HistoryItem[] }
 export type PlannerPublicationStatus = "sent" | "skipped" | "error"
 export interface PublicationKidResult { kid_name: string; menu_date?: string; selection: string; status: PlannerPublicationStatus }

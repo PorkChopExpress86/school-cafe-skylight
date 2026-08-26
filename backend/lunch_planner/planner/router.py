@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from lunch_planner.planner.readback import WeekPlannerReadback
+from lunch_planner.planner.readback import MonthPlannerReadback, WeekPlannerReadback
 from lunch_planner.planner.selection_change import SelectionChange, UnknownKidError
 
 MAX_SELECTION_LEN = 200
@@ -33,6 +33,10 @@ def create_router(database_path: Callable[[], Path]) -> APIRouter:
     def read_week(date: Annotated[str | None, Query()] = None) -> dict:
         ref = _parse_week_reference(date)
         return WeekPlannerReadback.read(database_path(), ref).as_payload()
+
+    @router.get("/month")
+    def read_month() -> dict:
+        return MonthPlannerReadback.read(database_path()).as_payload()
 
     @router.post("/select")
     def apply_selection(request: SelectRequest) -> dict:

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.planner import persistence as db
@@ -14,6 +15,7 @@ from lunch_planner.school_menu.models import get_week_dates
 from lunch_planner.school_menu.week_menu import read_week_menu
 
 SelectionPublicationState = Literal["pending", "published", "make_at_home"]
+_SCHOOL_TIME_ZONE = ZoneInfo("America/Chicago")
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,53 @@ class WeekPlannerReadback:
             "skylight_cfg": self.skylight_cfg,
             "menu_error": self.menu_error,
         }
+
+
+@dataclass(frozen=True)
+class MonthPlannerReadback:
+    """The current read-only monthly Selection summary."""
+
+    month: str
+    kids: list[dict]
+    planner: PlannerReadback
+    today: str
+
+    @classmethod
+    def read(cls, db_path: Path, current_date: date | None = None) -> MonthPlannerReadback:
+        """Read the current School Date month without requesting any remote menu data."""
+        current_date = current_date or _school_today()
+        dates = _month_dates(current_date)
+        return cls(
+            month=current_date.strftime("%Y-%m"),
+            kids=db.load_kids(db_path),
+            planner=PlannerReadback.read(db_path, dates),
+            today=current_date.isoformat(),
+        )
+
+    def as_payload(self) -> dict:
+        """Return the Month Planner Readback response shape."""
+        return {
+            "month": self.month,
+            "today": self.today,
+            "kids": self.kids,
+            "selections": self.planner.selections,
+            "day_totals": self.planner.day_totals,
+            "day_sent": self.planner.day_sent,
+        }
+
+
+def _school_today() -> date:
+    return datetime.now(_SCHOOL_TIME_ZONE).date()
+
+
+def _month_dates(current_date: date) -> list[str]:
+    first_day = current_date.replace(day=1)
+    if first_day.month == 12:
+        next_month = first_day.replace(year=first_day.year + 1, month=1)
+    else:
+        next_month = first_day.replace(month=first_day.month + 1)
+    days_in_month = (next_month - first_day).days
+    return [(first_day + timedelta(days=offset)).isoformat() for offset in range(days_in_month)]
 
 
 def _resolve_display_text(

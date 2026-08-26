@@ -36,6 +36,34 @@ The current weekly planning view: the displayed Menu, Kids, Planner Readback,
 and the current availability of school-menu and Skylight configuration.
 _Avoid_: Week payload, dashboard data
 
+**Month Planner Readback**:
+The current read-only monthly planning view: calendar dates, each Kid's Selection
+state summarized without entree names, and known School Menu availability. A
+Selection remains visible when menu availability is unknown. Choosing a date opens its Week
+Planner Readback.
+_Avoid_: Month payload, calendar data, monthly dashboard
+
+**Monthly Selection Summary**:
+The compact per-Kid Selection and day-completion information shown for a date in
+a Month Planner Readback. Make at Home is a completed Selection; publication is
+a separate status.
+_Avoid_: Calendar badge, lunch icon, daily progress
+
+**School Menu Availability**:
+The planner's known status of whether a date has School Menu choices. Weekends
+are non-school; a weekday without known choices is menu unavailable, not
+necessarily a school holiday.
+_Avoid_: Holiday status, no-school status
+
+**School Date**:
+A calendar date interpreted in the school's America/Chicago time zone.
+_Avoid_: Browser date, device date
+
+**Menu Catalog Freshness**:
+The most recent successful Menu Catalog Refresh time shown with a Month Planner
+Readback to qualify the current availability information.
+_Avoid_: Calendar sync time, menu date
+
 **Week Menu**:
 The School Menu Source choices presented for one planning week after Display Text is resolved.
 _Avoid_: Menu response, fetched week

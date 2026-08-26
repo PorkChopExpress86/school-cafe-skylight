@@ -1,9 +1,13 @@
 import { request } from "../../shared/api/request"
-import type { SelectResponse, SendResult, WeekResponse } from "./types"
+import type { MonthResponse, SelectResponse, SendResult, WeekResponse } from "./types"
 
 export function getWeek(date?: string): Promise<WeekResponse> {
   const query = date ? `?date=${encodeURIComponent(date)}` : ""
   return request<WeekResponse>(`/api/week${query}`)
+}
+
+export function getMonth(): Promise<MonthResponse> {
+  return request<MonthResponse>("/api/month")
 }
 
 export function select(kidId: number, menuDate: string, selection: string): Promise<SelectResponse> {
