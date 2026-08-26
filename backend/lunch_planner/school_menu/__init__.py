@@ -1,0 +1,1 @@
+"""School Menu feature."""

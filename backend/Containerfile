@@ -49,7 +49,8 @@ COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy the application code.
-COPY backend/*.py /app/
+COPY backend/lunch_planner /app/lunch_planner
+COPY backend/tools /app/tools
 COPY --from=frontend /frontend/dist /app/static
 
 # Give the app user ownership of the workdir. Use numeric IDs (not
@@ -60,4 +61,4 @@ RUN chown -R ${UID}:${GID} /app
 USER ${UID}:${GID}
 EXPOSE 8000
 
-CMD ["uvicorn", "fastapi_app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "lunch_planner.main:app", "--host", "0.0.0.0", "--port", "8000"]

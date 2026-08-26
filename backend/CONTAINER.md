@@ -72,7 +72,7 @@ production-shaped runtime:
 
 ```powershell
 Set-Location backend
-uvicorn fastapi_app:app --reload --host 127.0.0.1 --port 8000
+uvicorn lunch_planner.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ```powershell

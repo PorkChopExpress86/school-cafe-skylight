@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a FastAPI JSON API with a React/Vite single-page application. Backend code lives in `backend/`: keep route wiring in `fastapi_app.py`, persistence in `db.py`, planner-state assembly in `planner_readback.py`, and domain or external-service workflows in focused modules such as `meal_plan_publication.py` and `skylight_adapter.py`. Put backend tests in `backend/tests/test_*.py`. The React app is in `frontend/src/`, organized into `api/`, `hooks/`, `components/`, and `pages/`. Generated SQLite data and built assets are ignored.
+This is a FastAPI JSON API with a React/Vite single-page application. Backend code lives in the feature-oriented `backend/lunch_planner/` package: `planner/`, `publication/`, `menu_catalog/`, and `school_menu/`, with shared SQLite infrastructure under `persistence/`. Backend tests mirror those features under `backend/tests/`. The React app is organized into matching feature folders under `frontend/src/features/`; only generic HTTP plumbing belongs in `frontend/src/shared/`. Generated SQLite data and built assets are ignored.
 
 Read `backend/AGENTS.md` before changing API, persistence, Skylight publication, or container behavior: it records the domain vocabulary and ownership/security invariants.
 
@@ -10,7 +10,7 @@ Read `backend/AGENTS.md` before changing API, persistence, Skylight publication,
 
 - `cd backend; python -m pytest tests/ -q` runs the offline Python suite.
 - `cd backend; ruff check .` checks Python lint and import ordering.
-- `cd backend; mypy fastapi_app.py db.py week_menu.py school_menu_source.py menu_catalog.py menu_catalog_refresh.py planner_readback.py selection_change.py meal_plan_publication.py publication_outcome.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_item_display.py menu_casing.py` type-checks maintained backend modules.
+- `cd backend; mypy lunch_planner tools` type-checks maintained backend modules.
 - `cd frontend; npm run dev` starts the Vite development server; it proxies `/api` to the backend.
 - `cd frontend; npm test` runs the offline Vitest behavior suite. `npm run lint` runs Oxlint. `npm run build` type-checks, builds the SPA, and copies it to `backend/static/`.
 - `docker compose up --detach --build` builds and starts the production service. Verify it with `docker compose ps` and `/api/health`.

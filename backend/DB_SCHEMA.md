@@ -1,10 +1,9 @@
 # SQLite Database Schema — school-cafe-skylight
 
 Reference for reviewing the `app.db` setup. The schema is created by
-`init_db()` in `fastapi_app.py` (core tables) and `_init_menu_tables()`
-in `menu_sync.py` (menu cache + sync log + overrides). Both are
-idempotent (`CREATE TABLE IF NOT EXISTS`), so the DB self-migrates on
-startup.
+`init_db()` in `lunch_planner/persistence/database.py` owns the complete
+schema and its additive migrations. Initialization is idempotent
+(`CREATE TABLE IF NOT EXISTS`), so the DB self-migrates on startup.
 
 - **File:** `app.db` (SQLite, WAL mode — set once in `init_db`)
 - **Location:** project root, bind-mounted into the container
@@ -26,7 +25,7 @@ has one (e.g. `"P-"`, `"K-"`).
 | `color` | TEXT NOT NULL | hex color for the dashboard cells |
 | `prefix` | TEXT NOT NULL DEFAULT `''` | e.g. `"P-"`; used in Skylight recipe titles |
 
-Seeded from `DEFAULT_KIDS` in `fastapi_app.py` via `INSERT OR IGNORE`.
+Seeded from `DEFAULT_KIDS` in the persistence module via `INSERT OR IGNORE`.
 
 ### selections
 
@@ -133,7 +132,7 @@ selection_history.kid_name  ←  kids.name (denormalized, no FK)
 - **Dates:** stored as ISO `YYYY-MM-DD` strings; timestamps as
   `datetime.now().isoformat(timespec="seconds")`.
 - **Sentinel:** `MAKE_AT_HOME = "__MAKE_AT_HOME__"` (module constant in
-  `fastapi_app.py`, exposed to templates).
+  `lunch_planner/persistence/database.py`).
 - **WAL mode:** set once in `init_db` (`PRAGMA journal_mode = WAL`).
 - **Migrations:** additive only — `CREATE TABLE IF NOT EXISTS` plus
   `PRAGMA table_info` checks (see the `kids.prefix` migration). No
