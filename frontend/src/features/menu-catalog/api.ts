@@ -1,5 +1,5 @@
 import { request } from "../../shared/api/request"
-import type { AdminResponse, SyncResponse } from "./types"
+import type { AdminResponse, CasingResponse, SyncResponse } from "./types"
 
 export function getAdmin(): Promise<AdminResponse> {
   return request<AdminResponse>("/api/admin")
@@ -13,6 +13,6 @@ export function triggerSync(): Promise<SyncResponse> {
   return request<SyncResponse>("/api/admin/sync", { method: "POST" })
 }
 
-export function triggerLlmCasing(): Promise<{ ok: boolean; count: number; updated: number; message: string }> {
+export function triggerLlmCasing(): Promise<CasingResponse> {
   return request("/api/admin/llm-case-all", { method: "POST" })
 }
