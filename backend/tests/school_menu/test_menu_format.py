@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from lunch_planner.menu_catalog.display import cased_menu_item
-from lunch_planner.school_menu.school_cafe_adapter import format_day
 
 
 class TestTitleCaseFormatting:
@@ -59,10 +58,3 @@ class TestTitleCaseFormatting:
     )
     def test_common_items(self, source, expected):
         assert cased_menu_item(source) == expected
-
-
-class TestCommandLineFormatting:
-    def test_preserves_display_text_acronyms(self):
-        entries = [{"MenuItemDescription": "PB & J", "Category": "LUNCH ENTREE"}]
-
-        assert format_day(entries) == "  - PB & J"

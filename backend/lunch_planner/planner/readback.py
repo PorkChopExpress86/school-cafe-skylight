@@ -10,7 +10,7 @@ from typing import Any, Literal
 from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.planner import persistence as db
 from lunch_planner.planner.models import MAKE_AT_HOME
-from lunch_planner.school_menu.school_cafe_adapter import get_week_dates
+from lunch_planner.school_menu.models import get_week_dates
 from lunch_planner.school_menu.week_menu import read_week_menu
 
 SelectionPublicationState = Literal["pending", "published", "make_at_home"]

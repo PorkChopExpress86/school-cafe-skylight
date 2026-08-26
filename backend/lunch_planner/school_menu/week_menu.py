@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
-from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig, get_week_dates
+from lunch_planner.school_menu.models import DayMenu, MenuItem, SchoolCafeConfig, get_week_dates
 from lunch_planner.school_menu.source import SchoolCafeMenuSource, SchoolMenuSource
 
 _CACHE_TTL_SECONDS = 15 * 60

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lunch_planner import main as fastapi_app  # noqa: E402
 from lunch_planner.planner import readback as planner_readback  # noqa: E402
 from lunch_planner.publication.skylight_adapter import SkylightCredentials  # noqa: E402
-from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, get_week_dates  # noqa: E402
+from lunch_planner.school_menu.models import DayMenu, MenuItem, get_week_dates  # noqa: E402
 from lunch_planner.school_menu.week_menu import WeekMenuRead  # noqa: E402
 
 # A Wednesday, so get_week_dates() yields a full Mon-Fri around it.

@@ -18,7 +18,7 @@ from lunch_planner.menu_catalog.display import MenuItemDisplay, cased_menu_item
 from lunch_planner.menu_catalog.display_read import MenuItemDisplayRead
 from lunch_planner.menu_catalog.readback import MenuCatalogReadback
 from lunch_planner.planner.models import MAKE_AT_HOME
-from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig
+from lunch_planner.school_menu.models import DayMenu, MenuItem, SchoolCafeConfig
 from lunch_planner.school_menu.week_menu import WeekMenu
 
 

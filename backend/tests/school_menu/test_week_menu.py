@@ -6,7 +6,7 @@ from datetime import date
 
 import database_support as db
 
-from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig
+from lunch_planner.school_menu.models import DayMenu, MenuItem, SchoolCafeConfig
 from lunch_planner.school_menu.week_menu import WeekMenu
 
 REFERENCE = date(2026, 8, 24)

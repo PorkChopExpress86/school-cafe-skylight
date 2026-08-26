@@ -35,7 +35,7 @@ from lunch_planner.publication.skylight_adapter import (
     skylight_frame_id,
     skylight_login,
 )
-from lunch_planner.school_menu.school_cafe_adapter import get_week_dates
+from lunch_planner.school_menu.models import get_week_dates
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = DEFAULT_DB_PATH

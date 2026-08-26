@@ -8,7 +8,7 @@ import database_support as db
 
 from lunch_planner.planner import readback as planner_readback
 from lunch_planner.planner.readback import PlannerReadback, WeekPlannerReadback
-from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem
+from lunch_planner.school_menu.models import DayMenu, MenuItem
 from lunch_planner.school_menu.week_menu import WeekMenuRead
 
 
