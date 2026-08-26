@@ -35,8 +35,8 @@ def create_router(database_path: Callable[[], Path]) -> APIRouter:
         return WeekPlannerReadback.read(database_path(), ref).as_payload()
 
     @router.get("/month")
-    def read_month() -> dict:
-        return MonthPlannerReadback.read(database_path()).as_payload()
+    def read_month(month: Annotated[str | None, Query()] = None) -> dict:
+        return MonthPlannerReadback.read(database_path(), month).as_payload()
 
     @router.post("/select")
     def apply_selection(request: SelectRequest) -> dict:

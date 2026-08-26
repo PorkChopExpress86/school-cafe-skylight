@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -116,17 +117,25 @@ class MonthPlannerReadback:
     kids: list[dict]
     planner: PlannerReadback
     today: str
+    prev_month: str
+    next_month: str
+    current_month: str
 
     @classmethod
-    def read(cls, db_path: Path, current_date: date | None = None) -> MonthPlannerReadback:
-        """Read the current School Date month without requesting any remote menu data."""
+    def read(
+        cls, db_path: Path, requested_month: str | None = None, current_date: date | None = None
+    ) -> MonthPlannerReadback:
+        """Read one normalized School Date month without requesting any remote menu data."""
         current_date = current_date or _school_today()
-        dates = _month_dates(current_date)
+        reference_month = _month_reference(requested_month, current_date)
         return cls(
-            month=current_date.strftime("%Y-%m"),
+            month=reference_month.strftime("%Y-%m"),
             kids=db.load_kids(db_path),
-            planner=PlannerReadback.read(db_path, dates),
+            planner=PlannerReadback.read(db_path, _month_dates(reference_month)),
             today=current_date.isoformat(),
+            prev_month=_shift_month(reference_month, -1).strftime("%Y-%m"),
+            next_month=_shift_month(reference_month, 1).strftime("%Y-%m"),
+            current_month=current_date.strftime("%Y-%m"),
         )
 
     def as_payload(self) -> dict:
@@ -138,11 +147,28 @@ class MonthPlannerReadback:
             "selections": self.planner.selections,
             "day_totals": self.planner.day_totals,
             "day_sent": self.planner.day_sent,
+            "prev_month": self.prev_month,
+            "next_month": self.next_month,
+            "current_month": self.current_month,
         }
 
 
 def _school_today() -> date:
     return datetime.now(_SCHOOL_TIME_ZONE).date()
+
+
+def _month_reference(requested_month: str | None, current_date: date) -> date:
+    if requested_month and re.fullmatch(r"\d{4}-\d{2}", requested_month):
+        try:
+            return date.fromisoformat(f"{requested_month}-01")
+        except ValueError:
+            pass
+    return current_date.replace(day=1)
+
+
+def _shift_month(reference_month: date, offset: int) -> date:
+    month_index = reference_month.year * 12 + reference_month.month - 1 + offset
+    return date(month_index // 12, month_index % 12 + 1, 1)
 
 
 def _month_dates(current_date: date) -> list[str]:

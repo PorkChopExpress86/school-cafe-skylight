@@ -90,7 +90,7 @@ export default function WeekPage() {
             </button>
             <nav className="flex items-center gap-2">
               <Link
-                to="/calendar"
+                to={`/calendar?month=${encodeURIComponent(data.ref.slice(0, 7))}`}
                 className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 hover:border-slate-600 transition-all shadow-sm active:scale-95"
               >
                 Calendar

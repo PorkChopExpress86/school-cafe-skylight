@@ -16,6 +16,7 @@ export interface WeekResponse {
 export interface MonthResponse {
   month: string; today: string; kids: Kid[]; selections: Record<string, Record<number, SelectionState>>
   day_totals: Record<string, number>; day_sent: Record<string, number>
+  prev_month: string; next_month: string; current_month: string
 }
 export interface SelectResponse { kid_id: number; menu_date: string; selection: string; sent_at: string | null; day_totals: Record<string, number>; day_sent: Record<string, number>; history: HistoryItem[] }
 export type PlannerPublicationStatus = "sent" | "skipped" | "error"

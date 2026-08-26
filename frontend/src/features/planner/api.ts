@@ -6,8 +6,9 @@ export function getWeek(date?: string): Promise<WeekResponse> {
   return request<WeekResponse>(`/api/week${query}`)
 }
 
-export function getMonth(): Promise<MonthResponse> {
-  return request<MonthResponse>("/api/month")
+export function getMonth(month?: string): Promise<MonthResponse> {
+  const query = month ? `?month=${encodeURIComponent(month)}` : ""
+  return request<MonthResponse>(`/api/month${query}`)
 }
 
 export function select(kidId: number, menuDate: string, selection: string): Promise<SelectResponse> {

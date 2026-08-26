@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { type Kid, type SelectionPublicationState } from "./types"
 import { useMonth } from "./usePlannerApi"
 
@@ -56,7 +56,9 @@ function KidMarker({ kid, state }: KidMarkerProps) {
 }
 
 export default function CalendarPage() {
-  const { data, isLoading, error } = useMonth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedMonth = searchParams.get("month") ?? undefined
+  const { data, isLoading, error } = useMonth(requestedMonth)
 
   if (isLoading) {
     return <div className="min-h-screen bg-slate-950 p-6 text-slate-300">Loading lunch calendar...</div>
@@ -68,6 +70,7 @@ export default function CalendarPage() {
 
   const dates = monthDates(data.month)
   const totalKids = data.kids.length
+  const handleMonthChange = (month: string) => setSearchParams({ month })
 
   return (
     <div className="min-h-screen bg-slate-950 pb-12 text-slate-100">
@@ -86,7 +89,20 @@ export default function CalendarPage() {
 
       <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-lg">
-          <h2 className="text-lg font-bold text-white">{monthLabel(data.month)}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-white">{monthLabel(data.month)}</h2>
+            <nav aria-label="Calendar month navigation" className="flex items-center gap-2">
+              <button onClick={() => handleMonthChange(data.prev_month)} className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700">
+                Prev month
+              </button>
+              <button onClick={() => handleMonthChange(data.current_month)} className="rounded-lg border border-blue-500 bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500">
+                Today
+              </button>
+              <button onClick={() => handleMonthChange(data.next_month)} className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700">
+                Next month
+              </button>
+            </nav>
+          </div>
           <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-bold uppercase tracking-wide text-slate-500">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday) => <span key={weekday}>{weekday}</span>)}
           </div>

@@ -36,3 +36,17 @@ def test_current_month_readback_summarizes_selection_publication_states(
     assert data["day_totals"][today] == 2
     assert data["selections"][today][str(kid_ids["Parker"])]["publication_state"] == "published"
     assert data["selections"][today][str(kid_ids["Kylee"])]["publication_state"] == "make_at_home"
+
+
+def test_month_readback_uses_an_addressable_month_and_safely_falls_back(client, monkeypatch):
+    monkeypatch.setattr(planner_readback, "_school_today", lambda: date(2026, 8, 12))
+
+    september = client.get("/api/month?month=2026-09").json()
+    invalid = client.get("/api/month?month=September").json()
+
+    assert september["month"] == "2026-09"
+    assert september["today"] == "2026-08-12"
+    assert september["prev_month"] == "2026-08"
+    assert september["next_month"] == "2026-10"
+    assert september["current_month"] == "2026-08"
+    assert invalid["month"] == "2026-08"
