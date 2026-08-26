@@ -6,7 +6,7 @@ from datetime import datetime
 
 import db
 from menu_catalog import MenuCatalogReadback
-from menu_sync import SyncResult
+from menu_catalog_refresh import MenuCatalogRefreshResult
 
 
 def test_menu_catalog_readback_resolves_orders_and_summarizes(tmp_path):
@@ -24,13 +24,13 @@ def test_menu_catalog_readback_resolves_orders_and_summarizes(tmp_path):
     db.set_menu_override("CHEESE PIZZA", "Pizza Friday", db_path)
     db.log_sync_attempt(
         db_path,
-        SyncResult(
+        MenuCatalogRefreshResult(
             attempted_at=datetime(2026, 8, 12, 3),
-            succeeded=True,
+            status="refreshed",
+            message="done",
             weeks_fetched=4,
             items_stored=2,
-            error=None,
-            weeks_covered=["2026-08-10"],
+            weeks_covered=("2026-08-10",),
         ),
     )
 

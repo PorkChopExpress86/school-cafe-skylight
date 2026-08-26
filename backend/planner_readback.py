@@ -5,12 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import db
-import menu_service
 from school_menu import get_week_dates
-from selection_presentation import SelectionPresentation
+from week_menu import read_week_menu
+
+SelectionPublicationState = Literal["pending", "published", "make_at_home"]
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ class WeekPlannerReadback:
     @classmethod
     def read(cls, db_path: Path, ref: date) -> WeekPlannerReadback:
         """Read the displayed Menu and all planner state for one school week."""
-        week, menu_error = menu_service.fetch_week(ref, db_path)
+        menu = read_week_menu(ref, db_path)
         dates = [menu_date.isoformat() for menu_date in get_week_dates(ref)]
         planner = PlannerReadback.read(db_path, dates)
         with db.get_db(db_path) as conn:
@@ -77,7 +78,7 @@ class WeekPlannerReadback:
                     "weekday": day.date.strftime("%A"),
                     "entrees": [entree.description for entree in day.entrees],
                 }
-                for day in (week or [])
+                for day in (menu.days or [])
             ],
             kids=kids,
             planner=planner,
@@ -85,9 +86,9 @@ class WeekPlannerReadback:
             prev_week=(ref - timedelta(days=7)).isoformat(),
             next_week=(ref + timedelta(days=7)).isoformat(),
             today=date.today().isoformat(),
-            school_cfg=menu_service.school_config(),
+            school_cfg=menu.source_config,
             skylight_cfg=_published_skylight_config(),
-            menu_error=menu_error,
+            menu_error=menu.error,
         )
 
     def as_payload(self) -> dict:
@@ -136,6 +137,20 @@ def _compute_day_counts(
 def _present_selection_publication_state(selections: dict[str, dict[int, dict]]) -> None:
     for kid_map in selections.values():
         for state in kid_map.values():
-            state["publication_state"] = SelectionPresentation.from_storage(
-                state["selection"], state["sent_at"], state["sent_sitting_id"]
-            ).publication_state
+            state["publication_state"] = _selection_publication_state(
+                state["selection"],
+                state["sent_at"],
+                state["sent_sitting_id"],
+            )
+
+
+def _selection_publication_state(
+    selection: str,
+    sent_at: str | None,
+    sent_sitting_id: str | None,
+) -> SelectionPublicationState:
+    if sent_sitting_id:
+        return "published"
+    if sent_at and selection == db.MAKE_AT_HOME:
+        return "make_at_home"
+    return "pending"

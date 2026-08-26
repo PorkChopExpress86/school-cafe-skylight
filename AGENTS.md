@@ -10,10 +10,10 @@ Read `backend/AGENTS.md` before changing API, persistence, Skylight publication,
 
 - `cd backend; python -m pytest tests/ -q` runs the offline Python suite.
 - `cd backend; ruff check .` checks Python lint and import ordering.
-- `cd backend; mypy fastapi_app.py db.py menu_service.py planner_readback.py meal_plan_publication.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_sync_schedule.py menu_item_display.py menu_casing.py` type-checks maintained backend modules.
+- `cd backend; mypy fastapi_app.py db.py week_menu.py school_menu_source.py menu_catalog.py menu_catalog_refresh.py planner_readback.py selection_change.py meal_plan_publication.py publication_outcome.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_item_display.py menu_casing.py` type-checks maintained backend modules.
 - `cd frontend; npm run dev` starts the Vite development server; it proxies `/api` to the backend.
-- `cd frontend; npm run lint` runs Oxlint. `npm run build` type-checks, builds the SPA, and copies it to `backend/static/`.
-- `docker build -t school-cafe-skylight:latest -f backend/Containerfile .` builds the production image. The running service must be reachable at `/api/health`.
+- `cd frontend; npm test` runs the offline Vitest behavior suite. `npm run lint` runs Oxlint. `npm run build` type-checks, builds the SPA, and copies it to `backend/static/`.
+- `docker compose up --detach --build` builds and starts the production service. Verify it with `docker compose ps` and `/api/health`.
 
 Use `python backend/tests/smoke_test.py` only against a running local service; it is a manual live-data check, not a pytest test.
 
@@ -27,7 +27,7 @@ Add focused `test_*.py` coverage for behavior changes. The suite uses fixtures a
 
 Recent history uses Conventional Commit-style subjects, e.g. `fix: preserve selections after smoke tests`; keep subjects imperative and scoped. Pull requests should state the behavioral change, tests run, related issue (if any), and include screenshots for UI changes.
 
-Copy `.env.example` to `backend/.env` for local configuration. Keep credentials, token caches, `app.db`, and generated frontend assets untracked. Never return raw Skylight credentials from an API response.
+Copy `.env.example` to `.env` for Compose configuration. Compose stores SQLite at the bind-mounted `data/app.db`; keep credentials, token caches, database files, and generated frontend assets untracked. Never return raw Skylight credentials from an API response.
 
 ## Agent skills
 

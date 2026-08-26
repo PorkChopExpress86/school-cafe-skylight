@@ -78,10 +78,19 @@ export interface SendResult {
   deleted: number
   skipped: number
   errors: string[]
-  results: Array<{ kid_name: string; selection: string; status: string }>
+  results: PublicationKidResult[]
   day_totals?: Record<string, number>
   day_sent?: Record<string, number>
   history?: HistoryItem[]
+}
+
+export type PlannerPublicationStatus = "sent" | "skipped" | "error"
+
+export interface PublicationKidResult {
+  kid_name: string
+  menu_date?: string
+  selection: string
+  status: PlannerPublicationStatus
 }
 
 export interface AdminItem {

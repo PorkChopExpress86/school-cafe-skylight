@@ -112,9 +112,9 @@ cleared.
 | `updated_at` | TEXT NOT NULL | ISO timestamp |
 
 **Application points:**
-- Admin page: `apply_overrides_to_items` (adds `display_description`)
-- Live dashboard: `apply_overrides_to_week` in `fetch_week` (both
-  cache-hit and fresh-fetch paths)
+- Menu Catalog: `MenuCatalogReadback` adds `display_description`.
+- Week Menu: `WeekMenu.read` resolves current Display Text on both cache-hit
+  and fresh-source paths.
 
 ## Relationships
 

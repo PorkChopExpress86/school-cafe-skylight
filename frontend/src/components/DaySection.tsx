@@ -86,7 +86,7 @@ export default function DaySection({
                       menuDate={day.date}
                       item={item}
                       selected={selected}
-                      isLocked={selected && publicationState !== "pending"}
+                      isLocked={interaction.isChangingSelection || (selected && publicationState !== "pending")}
                       publicationState={publicationState}
                       onSelect={interaction.onSelectionChange}
                     />
@@ -115,7 +115,7 @@ export default function DaySection({
                   menuDate={day.date}
                   item={MAKE_AT_HOME}
                   selected={selected}
-                  isLocked={selected && publicationState !== "pending"}
+                  isLocked={interaction.isChangingSelection || (selected && publicationState !== "pending")}
                   publicationState={publicationState}
                   onSelect={interaction.onSelectionChange}
                 />

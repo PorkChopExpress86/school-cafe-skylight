@@ -72,11 +72,11 @@ export default function WeekPage() {
               Week of <strong className="text-slate-200">{weekStartLabel}</strong>
             </span>
             <button
-              onClick={() => interaction.publishWeek(data.ref)}
-              disabled={interaction.isPublishingWeek}
+              onClick={() => interaction.week.onPublication(data.ref)}
+              disabled={interaction.week.isPublishing}
               className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border border-red-500/40 shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
             >
-              {interaction.isPublishingWeek ? (
+              {interaction.week.isPublishing ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                   <span>Sending Week...</span>
@@ -113,16 +113,16 @@ export default function WeekPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-        {interaction.weekPublicationResult && (
+        {interaction.week.result && (
           <div
             className={`p-4 rounded-xl border text-sm flex items-center gap-3 shadow-md ${
-              interaction.weekPublicationResult.ok
+              interaction.week.result.ok
                 ? "bg-emerald-950/80 text-emerald-200 border-emerald-800/80"
                 : "bg-amber-950/80 text-amber-200 border-amber-800/80"
             }`}
           >
-            <span>{interaction.weekPublicationResult.ok ? "✅" : "⚠️"}</span>
-            <div>{interaction.weekPublicationResult.message}</div>
+            <span>{interaction.week.result.ok ? "✅" : "⚠️"}</span>
+            <div>{interaction.week.result.message}</div>
           </div>
         )}
 
@@ -155,7 +155,7 @@ export default function WeekPage() {
                 selections={daySelections}
                 total={total}
                 sentCount={sentCount}
-                interaction={interaction.dayInteraction(day.date)}
+                interaction={interaction.forDate(day.date)}
               />
             )
           })}

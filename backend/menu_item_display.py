@@ -5,7 +5,7 @@ permanent replacement for any item. Resolving a stored description therefore
 combines an override lookup with a casing pass.
 
 That combination used to live in four places under three different rules:
-`school_menu.extract_items` cased without overrides, `menu_service`'s two
+`school_menu.extract_items` cased without overrides, the former Week Menu helpers
 override helpers applied overrides without casing, and `db.resolve_display_text`
 did both. The entree a parent clicked and the Skylight recipe summary written
 for it went through different ones, so they could disagree. The rule lives

@@ -1,113 +1,89 @@
-# Container Guide
+# Docker Compose Guide
 
-Build and run the FastAPI + React app as a rootless Podman container on Fedora.
+Docker Compose is the production runtime for the FastAPI API and bundled React
+SPA. The service is intentionally published only on `127.0.0.1:8000` because
+the application has no authentication or CSRF protection and can write to a
+real Skylight calendar.
 
----
+## Start
 
-## 1. Development Mode (with Live Hot-Reloading)
+Create the environment file once, then build and start the service:
 
-To edit Python code (`backend/*.py`) and have changes reflect instantly without rebuilding the container, bind-mount the source files and pass `--reload` to uvicorn:
-
-```bash
-podman run -d \
-  --name school-cafe \
-  --userns=keep-id \
-  -p 127.0.0.1:8000:8000 \
-  -v "$HOME/.cache/pyskylight:/home/app/.cache/pyskylight:z" \
-  -v "$PWD/backend/.env:/app/.env:z" \
-  -v "$PWD/backend/app.db:/app/app.db:z" \
-  -v "$PWD/backend/fastapi_app.py:/app/fastapi_app.py:z" \
-  -v "$PWD/backend/db.py:/app/db.py:z" \
-  -v "$PWD/backend/menu_service.py:/app/menu_service.py:z" \
-  -v "$PWD/backend/planner_readback.py:/app/planner_readback.py:z" \
-  -v "$PWD/backend/meal_plan_publication.py:/app/meal_plan_publication.py:z" \
-  -v "$PWD/backend/publication_control.py:/app/publication_control.py:z" \
-  -v "$PWD/backend/skylight_adapter.py:/app/skylight_adapter.py:z" \
-  -v "$PWD/backend/menu_item_display.py:/app/menu_item_display.py:z" \
-  -v "$PWD/backend/menu_casing.py:/app/menu_casing.py:z" \
-  -v "$PWD/backend/school_menu.py:/app/school_menu.py:z" \
-  -v "$PWD/backend/skylight_menu.py:/app/skylight_menu.py:z" \
-  -v "$PWD/backend/menu_sync.py:/app/menu_sync.py:z" \
-  -v "$PWD/backend/menu_sync_schedule.py:/app/menu_sync_schedule.py:z" \
-  school-cafe-skylight:latest \
-  uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --reload
+```powershell
+Copy-Item .env.example .env
+docker compose up --detach --build
+docker compose ps
+Invoke-RestMethod http://127.0.0.1:8000/api/health
 ```
 
-For frontend development, run the Vite dev server separately:
+Compose injects `.env` into the service, persists the pyskylight token cache in
+a named volume, and sets `DATABASE_PATH=/data/app.db`. The repository's `data`
+directory is bind-mounted at `/data`, making the database directly available
+on the host as `data/app.db`.
 
-```bash
-cd frontend && npm run dev
-# Vite serves the SPA on :5173 and proxies /api to :8000
+On Linux hosts whose user is not UID/GID 1000, set the build identity in `.env`
+before building:
+
+```env
+CONTAINER_UID=1001
+CONTAINER_GID=1001
 ```
 
----
+## Operate
 
-## 2. Production Mode (Standalone / Self-Contained)
-
-The multi-stage Containerfile builds the React SPA (Node stage) and the Python API (Python stage) into one image:
-
-```bash
-# Build image
-podman build \
-  --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
-  -t school-cafe-skylight:latest \
-  -f backend/Containerfile .
-
-# Run container
-podman run -d \
-  --name school-cafe \
-  --userns=keep-id \
-  -p 127.0.0.1:8000:8000 \
-  -v "$HOME/.cache/pyskylight:/home/app/.cache/pyskylight:z" \
-  -v "$PWD/backend/.env:/app/.env:z" \
-  school-cafe-skylight:latest
+```powershell
+docker compose logs --follow app
+docker compose restart app
+docker compose stop app
+docker compose start app
+docker compose down
 ```
 
-The image serves both the API (`/api/*`) and the built SPA (`/` and `/admin`) on port 8000.
+`docker compose down` removes the container and network, but it does not remove
+`data/app.db` or the pyskylight cache volume. Do not add `--volumes` unless you
+intend to discard the cached Skylight login.
 
----
+## Back up and restore SQLite
 
-## 3. Operations & Management
+Stop the service before copying the database so SQLite checkpoints its WAL and
+the copied file is self-contained:
 
-```bash
-# Check status / logs
-podman logs -f school-cafe
-curl -s http://127.0.0.1:8000/api/health
-
-# Restart / stop / remove
-podman restart school-cafe
-podman stop    school-cafe
-podman rm      school-cafe
+```powershell
+docker compose stop app
+Copy-Item .\data\app.db D:\Backups\school-cafe-app.db
+docker compose start app
 ```
 
----
+To restore, stop the service, keep a safety copy of the current file, copy the
+backup into `data/app.db`, then start and verify health:
 
-## Key Container Flags Explained
+```powershell
+docker compose stop app
+Copy-Item .\data\app.db .\data\app.db.before-restore
+Copy-Item D:\Backups\school-cafe-app.db .\data\app.db
+docker compose start app
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+```
 
-| Flag | Why |
-| :--- | :--- |
-| `--userns=keep-id` | Maps in-container UID 1000 to host UID so bind-mounted files remain writable on host. |
-| `-p 127.0.0.1:8000:8000` | Publishes the port to **loopback only**. See the security note below. |
-| `:z` volume suffix | Required SELinux relabeling on Fedora/RHEL to grant container read/write access. |
-| `--reload` | Instructs Uvicorn (using `watchfiles`) to auto-reload on file edits. |
+## Development
 
----
+Run the API and frontend directly for hot reload; Compose represents the
+production-shaped runtime:
 
-## Security note: keep it on loopback
+```powershell
+Set-Location backend
+uvicorn fastapi_app:app --reload --host 127.0.0.1 --port 8000
+```
 
-The app has **no authentication and no CSRF protection**, and it can write to
-your real Skylight calendar. It is only safe because nothing off this machine
-can reach it.
+```powershell
+Set-Location frontend
+npm.cmd run dev
+```
 
-`uvicorn --host 0.0.0.0` inside the container is correct and necessary - that
-binds all interfaces *within the container's own network namespace*. What
-controls real exposure is how the port is published:
+Vite serves the SPA on port 5173 and proxies `/api` to port 8000.
 
-- `-p 127.0.0.1:8000:8000` - reachable only from this machine. **Use this.**
-- `-p 8000:8000` - reachable from anywhere on your LAN.
-- `--network host` - the container shares the host's namespace, so
-  `--host 0.0.0.0` binds every real interface. Also reachable from your LAN.
+## Security boundary
 
-The last two hand anyone on your network the ability to change what your kids
-are eating. If you genuinely need remote access, put the app behind a reverse
-proxy that authenticates first, and add CSRF tokens before doing so.
+Keep the host mapping as `127.0.0.1:8000:8000`. Publishing `8000:8000` exposes
+the unauthenticated write API to the local network. Remote access requires an
+authenticating reverse proxy and CSRF protection first.

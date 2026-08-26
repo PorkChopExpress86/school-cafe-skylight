@@ -36,15 +36,32 @@ The current weekly planning view: the displayed Menu, Kids, Planner Readback,
 and the current availability of school-menu and Skylight configuration.
 _Avoid_: Week payload, dashboard data
 
+**Week Menu**:
+The School Menu Source choices presented for one planning week after Display Text is resolved.
+_Avoid_: Menu response, fetched week
+
+**School Menu Source**:
+The school-published lunch choices from which the planner obtains its Week Menu and Menu Catalog items.
+_Avoid_: Remote menu, fetched menu
+
 **Menu Catalog**:
 The source-unique set of Menu items, their Display Text, and the recent
 history of Menu refresh attempts used to administer the planner.
 _Avoid_: Admin response, cache table
 
+**Menu Catalog Refresh**:
+One attempt to retrieve upcoming School Menu Source choices and record them in the Menu Catalog.
+_Avoid_: Menu sync, background job
+
 **Planner Interaction State**:
 The current local planning interaction: an in-progress Selection Change or
 Meal-plan Publication and its retained outcome for the displayed week.
 _Avoid_: Page state, hook state
+
+**Publication Outcome**:
+The typed Status and Phase vocabulary produced by Meal-plan Publication and
+projected once into the stable planner response vocabulary.
+_Avoid_: Send result string, response normalization
 
 **Owned Skylight Sitting**:
 A Skylight Lunch entry managed by this planner for a Kid and date. Other family meal-plan entries are not owned by the planner.

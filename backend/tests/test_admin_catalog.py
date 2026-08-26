@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
+from menu_catalog_refresh import MenuCatalogRefreshResult
+
 
 def _store_menu_item(app_module, menu_date: str, description: str) -> None:
     with app_module.get_db() as conn:
@@ -48,3 +52,22 @@ def test_admin_returns_unique_display_resolved_catalog(client, app_module):
     )
     cleared_catalog = client.get("/api/admin").json()
     assert cleared_catalog["items"][0]["display_description"] == "Cheese Pizza"
+
+
+def test_manual_refresh_route_projects_the_shared_typed_outcome(client, app_module, monkeypatch):
+    expected = MenuCatalogRefreshResult(datetime(2026, 8, 25, 18), "refreshed", "Refreshed catalog.")
+
+    class Refresh:
+        def refresh(self):
+            return expected
+
+    monkeypatch.setattr(
+        app_module,
+        "default_menu_catalog_refresh",
+        lambda db_path: Refresh() if db_path == app_module.DB_PATH else None,
+    )
+
+    response = client.post("/api/admin/sync")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": "Refreshed catalog."}

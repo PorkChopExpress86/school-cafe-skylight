@@ -41,3 +41,5 @@ app.db-wal
 backend/app.db
 backend/app.db-shm
 backend/app.db-wal
+data/*
+!data/README.md

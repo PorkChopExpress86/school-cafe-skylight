@@ -1,0 +1,36 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: backend/Containerfile
+      args:
+        UID: ${CONTAINER_UID:-1000}
+        GID: ${CONTAINER_GID:-1000}
+    image: school-cafe-skylight:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /data/app.db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+      - type: volume
+        source: skylight-cache
+        target: /home/app/.cache/pyskylight
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  skylight-cache:

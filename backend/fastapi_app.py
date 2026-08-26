@@ -11,9 +11,9 @@ endpoints below. This module returns JSON only - no templates, no HTML.
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager, contextmanager
-from datetime import UTC, datetime
+from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import date as date_cls
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -24,7 +24,7 @@ from pydantic import BaseModel
 import db
 from menu_casing import pin_display_overrides_for_all_items
 from menu_catalog import MenuCatalogReadback
-from menu_sync_schedule import MenuSyncSchedule
+from menu_catalog_refresh import default_menu_catalog_refresh
 from planner_readback import WeekPlannerReadback
 from publication_control import PublicationControl
 from school_menu import get_week_dates
@@ -53,31 +53,19 @@ def init_db() -> None:
     db.init_db(DB_PATH)
 
 
-async def _sunday_sync_scheduler():
-    """Run the deterministic Sunday sync policy from the application lifespan."""
-    import asyncio
-
-    schedule = MenuSyncSchedule(DB_PATH)
-    while True:
-        try:
-            await asyncio.sleep(600)  # Check every 10 minutes
-            outcome = schedule.run_if_due(datetime.now(UTC))
-            if outcome.status == "failed":
-                logger.warning("Scheduled SchoolCafé menu sync failed: %s", outcome.message)
-        except asyncio.CancelledError:
-            break
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     import asyncio
 
     init_db()
-    task = asyncio.create_task(_sunday_sync_scheduler())
+    refresh = default_menu_catalog_refresh(DB_PATH)
+    task = asyncio.create_task(refresh.run_schedule(logger.warning))
     try:
         yield
     finally:
         task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 def _skylight_login():
@@ -225,20 +213,8 @@ def api_admin_override(req: OverrideRequest) -> dict:
 
 @app.post("/api/admin/sync")
 def api_admin_sync() -> dict:
-    from menu_sync import load_sync_config
-    from menu_sync import sync_menu as _sync_menu
-
-    config = load_sync_config()
-    if config is None:
-        return {"ok": False, "message": "SCHOOL_ID not set in .env"}
-    try:
-        result = _sync_menu(config, db_path=DB_PATH)
-        return {
-            "ok": True,
-            "message": (f"Synced {result.items_stored} items across {result.weeks_fetched} weeks."),
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
+    outcome = default_menu_catalog_refresh(DB_PATH).refresh()
+    return {"ok": outcome.succeeded, "message": outcome.message}
 
 
 @app.post("/api/admin/llm-case-all")

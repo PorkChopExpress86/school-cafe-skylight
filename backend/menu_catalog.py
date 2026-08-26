@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import db
-import menu_service
+from menu_item_display import MenuItemDisplay
 
 
 @dataclass(frozen=True)
@@ -20,20 +20,10 @@ class MenuCatalogReadback:
     @classmethod
     def read(cls, db_path: Path, attempt_limit: int = 50) -> MenuCatalogReadback:
         """Read ordered, Display Text-resolved catalog administration state."""
-        items = menu_service.apply_overrides_to_items(
-            db.fetch_unique_menu_items(db_path), db.fetch_all_overrides(db_path)
-        )
-        items.sort(key=lambda item: (item["display_description"], item["description"]))
+        items = _assemble_catalog(db.fetch_unique_menu_items(db_path), db.fetch_all_overrides(db_path))
         attempts = db.fetch_recent_sync_attempts(db_path, limit=attempt_limit)
         return cls(
-            items=[
-                {
-                    "description": item["description"],
-                    "category": item["category"],
-                    "display_description": item["display_description"],
-                }
-                for item in items
-            ],
+            items=items,
             attempts=attempts,
             last_success=next((attempt for attempt in attempts if attempt["succeeded"]), None),
         )
@@ -45,3 +35,16 @@ class MenuCatalogReadback:
             "attempts": self.attempts,
             "last_success": self.last_success,
         }
+
+
+def _assemble_catalog(items: list[dict], overrides: dict[str, str]) -> list[dict]:
+    display = MenuItemDisplay(overrides)
+    displayed = [
+        {
+            "description": item["description"],
+            "category": item["category"],
+            "display_description": display.display(item["description"]),
+        }
+        for item in items
+    ]
+    return sorted(displayed, key=lambda item: (item["display_description"], item["description"]))

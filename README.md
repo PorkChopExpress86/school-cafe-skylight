@@ -4,7 +4,7 @@ A modern, containerized FastAPI + React web application designed for families at
 
 ![Post Patriots Theme](https://img.shields.io/badge/Theme-Post_Elementary_Patriots-0F172A?style=for-the-badge&logoColor=F59E0B)
 ![Stack](https://img.shields.io/badge/Stack-FastAPI_%7C_React_%7C_Vite_%7C_SQLite-DC2626?style=for-the-badge)
-![Container](https://img.shields.io/badge/Container-Podman-0052CC?style=for-the-badge)
+![Container](https://img.shields.io/badge/Container-Docker_Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
 ---
 
@@ -24,38 +24,44 @@ A modern, containerized FastAPI + React web application designed for families at
 ```
 school-cafe-skylight/
 ├── backend/                  ← FastAPI JSON API (Python 3.14)
-│   ├── fastapi_app.py        ← Router, endpoints & background lifespan scheduler
+│   ├── fastapi_app.py        ← Router, endpoints & lifespan wiring
 │   ├── db.py                 ← SQLite schema, connections, overrides & sync logs
-│   ├── menu_service.py       ← SchoolCafé config, in-memory caching & override resolution
+│   ├── week_menu.py          ← Deep Week Menu read, cache & Display Text
+│   ├── school_menu_source.py ← Shared School Menu Source adapter seam
+│   ├── menu_catalog.py       ← Display-resolved Menu Catalog Readback
+│   ├── menu_catalog_refresh.py ← Refresh, persistence, outcomes & schedule
 │   ├── meal_plan_publication.py ← Shared day/week publication workflow
+│   ├── publication_outcome.py ← Typed outcomes & response projection
 │   ├── skylight_adapter.py     ← Skylight OAuth & pyskylight adapter
 │   ├── school_menu.py        ← SchoolCafé API client & agy AI title casing
-│   ├── menu_sync.py          ← One 4-week menu sync attempt
-│   ├── menu_sync_schedule.py ← Automated Sunday scheduling policy
-│   ├── Containerfile         ← Production multi-stage Podman container definition
+│   ├── menu_sync.py          ← Thin Menu Catalog Refresh command-line adapter
+│   ├── Containerfile         ← Production multi-stage container definition
 │   └── tests/                ← Pytest suite (75+ offline tests)
 ├── frontend/                 ← React SPA (TypeScript + Vite + Tailwind v4)
 │   ├── src/pages/            ← WeekPage dashboard & AdminPage
 │   ├── src/components/       ← Cell, SendButton, DaySection, HistoryPanel
-│   └── src/api/              ← Typed API client & TanStack Query hooks
+│   ├── src/api/              ← Typed API client
+│   └── src/hooks/            ← TanStack Query and deep Planner Interaction State
+├── compose.yaml              ← Production runtime and persistence wiring
+└── data/app.db               ← Host-visible SQLite database (gitignored)
 ```
 
 ---
 
-## 🚀 Quick Start (Podman Container)
+## 🚀 Quick Start (Docker Compose)
 
 ### 1. Prerequisites
-- [Podman](https://podman.io/) or Docker installed.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Docker Compose.
 - Python 3.11+ (optional, for running local unit tests).
 
 ### 2. Configure Environment Variables
-Copy `.env.example` to `backend/.env` and enter your credentials:
+Copy `.env.example` to `.env` and enter your credentials:
 
-```bash
-cp .env.example backend/.env
+```powershell
+Copy-Item .env.example .env
 ```
 
-Edit `backend/.env`:
+Edit `.env`:
 ```env
 SKYLIGHT_EMAIL=your_email@example.com
 SKYLIGHT_PASSWORD=your_skylight_password
@@ -67,26 +73,26 @@ SCHOOL_MEAL_TYPE=Lunch
 SCHOOL_GRADE=02
 ```
 
-### 3. Build & Run Container
-Build the container image:
-```bash
-podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t school-cafe-skylight:latest -f backend/Containerfile .
+### 3. Build and start
+
+```powershell
+docker compose up --detach --build
+docker compose ps
 ```
 
-Start the container daemon:
-```bash
-podman run -d \
-  --name school-cafe \
-  --userns=keep-id \
-  -p 127.0.0.1:8000:8000 \
-  -v "$HOME/.cache/pyskylight:/home/app/.cache/pyskylight:z" \
-  -v "$PWD/backend/.env:/app/.env:z" \
-  -v "$PWD/backend/app.db:/app/app.db:z" \
-  school-cafe-skylight:latest
+Open [http://127.0.0.1:8000/](http://127.0.0.1:8000/). Compose keeps the
+unauthenticated service loopback-only and creates the SQLite file at
+`data/app.db`. Stop the service before copying that file so SQLite can
+checkpoint its write-ahead log:
+
+```powershell
+docker compose stop app
+Copy-Item .\data\app.db D:\Backups\school-cafe-app.db
+docker compose start app
 ```
 
-Open your browser and navigate to:
-👉 **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**
+See [`backend/CONTAINER.md`](backend/CONTAINER.md) for logs, updates, restore,
+and Linux UID/GID guidance.
 
 ---
 
@@ -102,6 +108,12 @@ Run the Python unit test suite:
 ```bash
 cd backend
 python -m pytest tests/ -v
+```
+
+Run the frontend behavior suite:
+```bash
+cd frontend
+npm test
 ```
 
 Run the container smoke tests against a running container:

@@ -1,8 +1,8 @@
 # Containerfile for the FastAPI + React school-lunch planner.
 # Multi-stage: stage 1 builds the React SPA, stage 2 runs FastAPI and
-# serves the built SPA. Single user-mode image; runs as UID 1000;
-# expects /app/.env and a writable /app mount for app.db (both
-# bind-mounted at run time).
+# serves the built SPA. Single user-mode image; runs as UID 1000 by
+# default. Compose injects configuration and points DATABASE_PATH at the
+# bind-mounted SQLite file.
 
 # --- Stage 1: build the React frontend -------------------------------
 FROM docker.io/library/node:22-slim AS frontend
@@ -29,7 +29,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # so the build is reproducible on any host. If your host UID isn't 1000,
 # override at build time:
 #
-#     podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) ...
+#     CONTAINER_UID=$(id -u) CONTAINER_GID=$(id -g) docker compose build app
 #
 ARG UID=1000
 ARG GID=1000
@@ -52,15 +52,12 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY backend/*.py /app/
 COPY --from=frontend /frontend/dist /app/static
 
-# Give the app user ownership of the workdir so it can create app.db on
-# first startup and so any future bind-mount at /app lands in writable
-# territory. Use numeric IDs (not 'app:app') so this works regardless of
+# Give the app user ownership of the workdir. Use numeric IDs (not
+# 'app:app') so this works regardless of
 # whether the in-container UID matches the one we created above.
 RUN chown -R ${UID}:${GID} /app
 
 USER ${UID}:${GID}
 EXPOSE 8000
 
-# Container-internal default; the bind mount at /app/.env overrides this
-# at run time.
 CMD ["uvicorn", "fastapi_app:app", "--host", "0.0.0.0", "--port", "8000"]

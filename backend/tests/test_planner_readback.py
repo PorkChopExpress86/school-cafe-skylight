@@ -8,6 +8,7 @@ import db
 import planner_readback
 from planner_readback import PlannerReadback, WeekPlannerReadback
 from school_menu import DayMenu, MenuItem
+from week_menu import WeekMenuRead
 
 
 def test_readback_resolves_display_text_and_keeps_global_history(tmp_path):
@@ -40,8 +41,11 @@ def test_week_planner_readback_owns_the_complete_week_response(monkeypatch, tmp_
     db.init_db(db_path)
     ref = date(2026, 8, 12)
     week = [DayMenu(date(2026, 8, 10), [MenuItem("Cheese Pizza", "LUNCH ENTREE")])]
-    monkeypatch.setattr(planner_readback.menu_service, "fetch_week", lambda _ref, _path: (week, None))
-    monkeypatch.setattr(planner_readback.menu_service, "school_config", lambda: None)
+    monkeypatch.setattr(
+        planner_readback,
+        "read_week_menu",
+        lambda _ref, _path: WeekMenuRead(week, None),
+    )
     monkeypatch.setattr(planner_readback, "_published_skylight_config", lambda: {"frame_id": "frame-1"})
 
     readback = WeekPlannerReadback.read(db_path, ref)

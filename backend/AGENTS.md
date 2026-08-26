@@ -13,35 +13,40 @@ school-cafe-skylight/
 ├── backend/          ← FastAPI JSON API (Python)
 │   ├── fastapi_app.py   ← Lean API router & middleware
 │   ├── db.py            ← SQLite database schema, connections, selections, overrides, sync logs
-│   ├── menu_service.py  ← SchoolCafé config, in-memory TTL caching, override resolution
+│   ├── week_menu.py     ← Deep Week Menu read, TTL cache, and Display Text assembly
+│   ├── school_menu_source.py ← Shared School Menu Source seam and production adapter
+│   ├── menu_catalog.py  ← Display-resolved Menu Catalog Readback
+│   ├── menu_catalog_refresh.py ← Refresh, persistence, outcomes, and scheduling
 │   ├── planner_readback.py ← Display-resolved planner state, counts, and history
 │   ├── meal_plan_publication.py ← Deep Meal-plan Publication workflow for day/week writes
 │   ├── publication_control.py ← Route-facing publication configuration, adapter, and readback control
+│   ├── publication_outcome.py ← Typed Status/Phase vocabulary and planner response projection
 │   ├── skylight_adapter.py ← Skylight credentials, OAuth, and the pyskylight adapter
 │   ├── school_menu.py   ← SchoolCafé client (fetch + parse only)
 │   ├── menu_item_display.py ← Display Text: overrides + casing (pure, no I/O)
 │   ├── menu_casing.py   ← Bulk Display Override generation via agy (admin only)
-│   ├── menu_sync.py     ← One 4-week menu sync attempt
-│   ├── menu_sync_schedule.py ← Sunday scheduling policy and explicit outcomes
+│   ├── menu_sync.py     ← Thin Menu Catalog Refresh command-line adapter
 │   ├── skylight_menu.py ← Skylight config loader
 │   ├── tests/           ← pytest suite (offline, 75+ tests)
-│   └── app.db           ← SQLite (gitignored)
+│   └── app.db           ← Native-development SQLite fallback (gitignored)
 ├── frontend/         ← React SPA (TypeScript + Tailwind v4 + Post Patriots theme)
 │   ├── src/api/         ← typed API client (getWeek, select, sendDay, getAdmin, setOverride, triggerSync, triggerLlmCasing)
-│   ├── src/hooks/       ← TanStack Query hooks (useWeek, useSelect, useSendDay, useAdmin, useOverride, useSync, useLlmCasing)
+│   ├── src/hooks/       ← TanStack Query hooks and deep Planner Interaction State
 │   ├── src/components/  ← Cell, SendButton, HistoryPanel, DaySection
 │   ├── src/pages/       ← WeekPage, AdminPage (deduplicated Unique Items table & search)
 │   └── vite.config.ts   ← dev proxy /api → :8000
+├── compose.yaml      ← Production runtime and persistence wiring
+└── data/app.db       ← Compose SQLite database (gitignored)
 ```
 
 ## Operating model
 
-- **Container is the runtime.** Local Python is for tests only; the app runs in Podman with bind-mounted source.
-- **Container restarts itself** via `systemctl --user start school-cafe.service` (see `~/.config/systemd/user/school-cafe.service`). Auto-restarts on crash/reboot.
-- **Automated Sunday 3:00 AM Sync:** `MenuSyncSchedule` is the single scheduler. The FastAPI lifespan calls it every 10 minutes; it makes at most one America/Chicago Sunday 03:00 attempt, records sync failures, and returns explicit not-due, already-attempted, not-configured, synced, or failed outcomes. Do not add cron or systemd timers. `POST /api/admin/sync` remains an immediate manual trigger.
+- **Docker Compose is the runtime.** `docker compose up --detach --build` runs the production-shaped app; local Python and Vite are for tests and hot-reload development.
+- **SQLite persistence:** Compose sets `DATABASE_PATH=/data/app.db` and bind-mounts the host `data/` directory at `/data`. Stop `app` before copying or restoring the database so SQLite checkpoints its WAL.
+- **Automated Sunday 3:00 AM Refresh:** `MenuCatalogRefresh` owns the single scheduling policy and typed outcomes (`not_due`, `already_attempted`, `not_configured`, `refreshed`, `failed`). The FastAPI lifespan polls it every 10 minutes; it makes at most one America/Chicago Sunday 03:00 attempt and logs that attempt once. Do not add cron or systemd timers. `POST /api/admin/sync` remains an immediate manual trigger through the same module.
 - **AI Case Formatting:** Only the admin bulk re-casing pass talks to a model — `menu_casing.AgyCasingAdapter` (`agy -p ... --model gemini-3.6-flash-low`), triggered by `POST /api/admin/llm-case-all`. It asks for every unique item and pins the answers as Display Overrides. Nothing else shells out: `menu_item_display.MenuItemDisplay` is pure, and ingest/read paths never call a model. Tests pass a fake adapter as a parameter — never add a `PYTEST_CURRENT_TEST` check to production code.
 - **Frontend build automation:** `npm run build` runs a `postbuild` hook copying `frontend/dist` to `backend/static/`.
-- **Image:** `localhost/school-cafe-skylight:latest`. Rebuild after `Containerfile` or `requirements*.txt` changes.
+- **Image:** `school-cafe-skylight:latest`. Rebuild after `Containerfile`, Compose, or `requirements*.txt` changes.
 
 ## Quick reference
 
@@ -49,12 +54,13 @@ school-cafe-skylight/
 |--------|---------|
 | Run backend tests | `cd backend && python -m pytest tests/ -q` |
 | Lint backend | `cd backend && ruff check .` |
-| Type-check backend | `cd backend && mypy fastapi_app.py db.py menu_service.py menu_catalog.py planner_readback.py selection_change.py selection_presentation.py meal_plan_publication.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_sync_schedule.py menu_item_display.py menu_casing.py` |
+| Type-check backend | `cd backend && mypy fastapi_app.py db.py week_menu.py school_menu_source.py menu_catalog.py menu_catalog_refresh.py planner_readback.py selection_change.py meal_plan_publication.py publication_outcome.py publication_control.py skylight_adapter.py school_menu.py menu_sync.py menu_item_display.py menu_casing.py` |
+| Run frontend tests | `cd frontend && npm test` |
 | Build frontend & sync static | `cd frontend && npm run build` |
 | Frontend dev server | `cd frontend && npm run dev` |
-| Start container | `podman start school-cafe` (or `systemctl --user start school-cafe.service`) |
-| Container logs | `podman logs -f school-cafe` |
-| Rebuild container image | `podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t school-cafe-skylight:latest -f backend/Containerfile .` |
+| Start container | `docker compose up --detach` |
+| Container logs | `docker compose logs --follow app` |
+| Rebuild container image | `docker compose up --detach --build` |
 
 ## API surface
 
@@ -117,7 +123,7 @@ Meal-plan Publication deletes all Lunch sittings on the date that have a stored 
 
 ## Mistakes I made repeatedly (don't repeat them)
 
-1. **Changed host code and assumed the container picked it up.** Verify the change is live with `podman exec school-cafe grep ... /app/<file>`. Rebuild container image if adding python files to `Containerfile`.
+1. **Changed host code and assumed the container picked it up.** Verify the change is live with `docker compose exec app grep ... /app/<file>`. Rebuild the service after changing bundled code.
 2. **Wrote defensive `getattr(obj, 'attr', '')` on pyskylight models without checking the actual shape.** Fields are under `.attributes[...]`.
 3. **Made test changes without first reading the test fixture.** `FakeSkylightClient` uses flat attributes.
 4. **Mounted static files BEFORE API routes.** Static mount at `/` must be registered LAST in FastAPI.
@@ -128,7 +134,7 @@ Meal-plan Publication deletes all Lunch sittings on the date that have a stored 
 
 - Use `from __future__ import annotations` at the top of every Python file.
 - Pin exact versions in `requirements.txt` and `requirements-dev.txt`.
-- Deep module design (`db.py`, `menu_service.py`, `meal_plan_publication.py`) keeping router thin and domain logic isolated.
+- Deep module design (`db.py`, `week_menu.py`, `menu_catalog_refresh.py`, `meal_plan_publication.py`) keeping router thin and domain logic isolated.
 - `# noqa: BLE001` is the standard way to justify `except Exception` on a network/DB call.
 - Three-phase design for DB and network I/O: read from DB, release connection, do I/O, reopen DB and write.
 
@@ -138,20 +144,21 @@ Meal-plan Publication deletes all Lunch sittings on the date that have a stored 
 |---------|------|
 | API routes & app lifespan | `backend/fastapi_app.py` |
 | Database connections, schema & overrides | `backend/db.py` |
-| Menu caching & override resolution | `backend/menu_service.py` |
+| Week Menu interface, TTL policy, and Display Text assembly | `backend/week_menu.py` |
+| Shared School Menu Source seam and production adapter | `backend/school_menu_source.py` |
+| Menu Catalog Readback | `backend/menu_catalog.py` |
+| Menu Catalog Refresh, outcomes, and scheduling | `backend/menu_catalog_refresh.py` |
 | Display-resolved planner state | `backend/planner_readback.py` |
 | One Selection Change | `backend/selection_change.py` |
-| Menu Catalog Readback | `backend/menu_catalog.py` |
-| Selection presentation | `backend/selection_presentation.py` |
+| Selection Publication State presentation | `backend/planner_readback.py` |
 | Day/week Meal-plan Publication | `backend/meal_plan_publication.py` |
 | Route-facing publication control | `backend/publication_control.py` |
+| Publication Status/Phase and response projection | `backend/publication_outcome.py` |
 | Skylight login & external adapter | `backend/skylight_adapter.py` |
-| SchoolCafé API client & agy AI casing | `backend/school_menu.py` |
-| One 4-week menu sync attempt | `backend/menu_sync.py` |
-| Sunday menu-sync scheduling policy | `backend/menu_sync_schedule.py` |
+| SchoolCafé client and parsing | `backend/school_menu.py` |
+| Menu Catalog Refresh command-line adapter | `backend/menu_sync.py` |
 | Skylight CLI helper | `backend/skylight_menu.py` |
 | React SPA | `frontend/src/` |
 | Tests | `backend/tests/test_*.py` |
-| Container build | `backend/Containerfile` + `backend/.containerignore` |
-| Optional container service | `~/.config/systemd/user/school-cafe.service` |
+| Container runtime | `compose.yaml` + `backend/Containerfile` + `.dockerignore` |
 | Domain docs | `backend/SCHOOL_CAFE_API.md`, `backend/SKYLIGHT_API.md`, `backend/CONTAINER.md` |

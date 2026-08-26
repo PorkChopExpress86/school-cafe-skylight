@@ -12,7 +12,9 @@ Encapsulates connections, schema migrations, and data access for:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -21,7 +23,16 @@ from typing import Any
 from menu_item_display import MenuItemDisplay, cased_menu_item
 
 APP_DIR = Path(__file__).resolve().parent
-DEFAULT_DB_PATH = APP_DIR / "app.db"
+
+
+def configured_database_path(environment: Mapping[str, str] | None = None) -> Path:
+    """Return the configured SQLite path, falling back to the backend directory."""
+    source = os.environ if environment is None else environment
+    configured_path = source.get("DATABASE_PATH", "").strip()
+    return Path(configured_path).expanduser() if configured_path else APP_DIR / "app.db"
+
+
+DEFAULT_DB_PATH = configured_database_path()
 
 MAKE_AT_HOME = "__MAKE_AT_HOME__"
 HISTORY_RETENTION = 500

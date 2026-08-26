@@ -10,6 +10,12 @@ from threading import Lock
 from typing import Protocol
 
 import db
+from publication_outcome import (
+    DatePublicationOutcome,
+    DatePublicationStatus,
+    KidPublicationOutcome,
+    PublicationResult,
+)
 
 _publication_lock = Lock()
 _active_publications: set[tuple[str, str]] = set()
@@ -47,36 +53,6 @@ class SkylightAdapter(Protocol):
     def create_sitting(self, menu_date: str, lunch_id: str, recipe_id: str) -> SkylightSitting: ...
 
     def close(self) -> None: ...
-
-
-@dataclass(frozen=True)
-class KidPublicationOutcome:
-    kid_id: int
-    kid_name: str
-    selection: str
-    status: str
-    sitting_id: str | None = None
-    phase: str | None = None
-    message: str | None = None
-
-
-@dataclass(frozen=True)
-class DatePublicationOutcome:
-    menu_date: str
-    status: str
-    kid_outcomes: list[KidPublicationOutcome]
-    deleted: int = 0
-    phase: str | None = None
-    message: str | None = None
-
-
-@dataclass(frozen=True)
-class PublicationResult:
-    date_outcomes: list[DatePublicationOutcome]
-
-    @property
-    def ok(self) -> bool:
-        return all(outcome.status == "published" for outcome in self.date_outcomes)
 
 
 @dataclass(frozen=True)
@@ -394,7 +370,9 @@ class MealPlanPublisher:
                 else outcome
                 for outcome in kid_outcomes
             ]
-        status = "published" if all(outcome.status != "failed" for outcome in kid_outcomes) else "partial"
+        status: DatePublicationStatus = (
+            "published" if all(outcome.status != "failed" for outcome in kid_outcomes) else "partial"
+        )
         return DatePublicationOutcome(
             menu_date=menu_date,
             status=status,

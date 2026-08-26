@@ -13,9 +13,10 @@ from __future__ import annotations
 from datetime import date
 
 import db
-import menu_service
+from menu_catalog import MenuCatalogReadback
 from menu_item_display import MenuItemDisplay, cased_menu_item
-from school_menu import DayMenu, MenuItem
+from school_menu import DayMenu, MenuItem, SchoolCafeConfig
+from week_menu import WeekMenu
 
 
 class TestDisplayRule:
@@ -89,18 +90,37 @@ class TestPathsAgree:
         ]
 
     def test_week_path_matches_the_selection_path(self, tmp_path):
-        from_week = (
-            menu_service.apply_overrides_to_week(self._week(), self.OVERRIDES)[0]
-            .items[0]
-            .description
-        )
+        db_path = tmp_path / "display.db"
+        db.init_db(db_path)
+        db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
+
+        class Source:
+            def config(self):
+                return SchoolCafeConfig("school-1")
+
+            def fetch_week(self, _config, _reference):
+                return self_week
+
+        self_week = self._week()
+        read = WeekMenu(Source()).read(date(2026, 8, 12), db_path)
+        assert read.days is not None
+        from_week = read.days[0].items[0].description
         from_selection = db.resolve_display_text("CHEESE PIZZA", self.OVERRIDES)
         assert from_week == from_selection == "Cheese Pizza (Veggie)"
 
-    def test_admin_path_matches_the_selection_path(self):
-        items = [{"description": "CHEESE PIZZA", "menu_date": "2026-08-12"}]
-        from_admin = menu_service.apply_overrides_to_items(items, self.OVERRIDES)[0][
-            "display_description"
-        ]
+    def test_admin_path_matches_the_selection_path(self, tmp_path):
+        db_path = tmp_path / "display.db"
+        db.init_db(db_path)
+        with db.get_db(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO menu_items (menu_date, description, category, week_start, fetched_at)
+                VALUES ('2026-08-12', 'CHEESE PIZZA', 'LUNCH ENTREE', '2026-08-10', '2026-08-01')
+                """
+            )
+            conn.commit()
+        db.set_menu_override("Cheese Pizza", "Cheese Pizza (Veggie)", db_path)
+
+        from_admin = MenuCatalogReadback.read(db_path).items[0]["display_description"]
         from_selection = db.resolve_display_text("CHEESE PIZZA", self.OVERRIDES)
         assert from_admin == from_selection == "Cheese Pizza (Veggie)"
