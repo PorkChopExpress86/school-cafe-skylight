@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from conftest import MENU_DATE, FakeSkylightClient
 
-from lunch_planner.publication.publisher import SkylightRecipe, SkylightSitting
+from lunch_planner.publication.models import SkylightRecipe, SkylightSitting
 from lunch_planner.publication.skylight_adapter import PyskylightAdapter
 
 

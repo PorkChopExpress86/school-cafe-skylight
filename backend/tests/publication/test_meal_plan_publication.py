@@ -10,7 +10,8 @@ from threading import Event
 
 import database_support as db
 
-from lunch_planner.publication.publisher import MealPlanPublisher, SkylightRecipe, SkylightSitting
+from lunch_planner.publication.models import SkylightRecipe, SkylightSitting
+from lunch_planner.publication.publisher import MealPlanPublisher
 
 
 @dataclass(frozen=True)

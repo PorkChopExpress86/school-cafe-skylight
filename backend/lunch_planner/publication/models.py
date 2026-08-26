@@ -20,6 +20,35 @@ PlannerKidStatus = Literal["sent", "skipped", "error"]
 
 
 @dataclass(frozen=True)
+class SkylightRecipe:
+    """Recipe fields Meal-plan Publication owns after adapter translation."""
+
+    id: str
+    summary: str
+
+
+@dataclass(frozen=True)
+class SkylightSitting:
+    """Sitting fields Meal-plan Publication owns after adapter translation."""
+
+    id: str
+    meal_recipe_id: str
+
+
+@dataclass(frozen=True)
+class FrozenSelection:
+    """One Selection captured before its Meal-plan Publication begins."""
+
+    kid_id: int
+    kid_name: str
+    kid_prefix: str
+    menu_date: str
+    stored_selection: str
+    selection: str
+    sent_sitting_id: str | None
+
+
+@dataclass(frozen=True)
 class KidPublicationOutcome:
     """One Kid outcome in the Meal-plan Publication vocabulary."""
 

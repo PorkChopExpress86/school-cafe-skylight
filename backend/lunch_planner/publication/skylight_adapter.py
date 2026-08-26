@@ -11,7 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from pyskylight import SkylightClient
 
-from lunch_planner.publication.publisher import SkylightRecipe, SkylightSitting
+from lunch_planner.publication.models import SkylightRecipe, SkylightSitting
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _env_loaded = False
