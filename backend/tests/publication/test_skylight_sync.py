@@ -1,4 +1,4 @@
-"""Tests for the Skylight write path (send_day_to_skylight and /api/send-day)."""
+"""Tests for the Skylight write path through the /api/send-day contract."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Parker"], ENTREES[0])
         pick(client, kid_ids["Kylee"], ENTREES[0])
 
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
 
         assert str(family.id) not in skylight.deleted_ids
         assert "Family Taco Night" in skylight.summaries()
@@ -78,7 +78,7 @@ class TestPrefixScopedWipe:
         dinner = skylight.seed("P- Family Dinner Idea", "cat-dinner")
         pick(client, kid_ids["Parker"], ENTREES[0])
 
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
 
         assert str(dinner.id) not in skylight.deleted_ids
 
@@ -88,7 +88,7 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Parker"], MAKE_AT_HOME)
         pick(client, kid_ids["Kylee"], MAKE_AT_HOME)
 
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert str(stray.id) in skylight.deleted_ids
         assert skylight.sittings == []
@@ -97,13 +97,13 @@ class TestPrefixScopedWipe:
     def test_both_kids_are_replaced_when_only_one_changed(self, app_module, client, skylight, kid_ids):
         pick(client, kid_ids["Parker"], ENTREES[0])
         pick(client, kid_ids["Kylee"], ENTREES[1])
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
         kylee_original = next(
             s for s in skylight.sittings if skylight.recipe_by_id(s.meal_recipe_id).summary.startswith("K-")
         )
 
         pick(client, kid_ids["Parker"], ENTREES[1])  # only Parker changes
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert str(kylee_original.id) in skylight.deleted_ids
         assert result["deleted"] == 2
@@ -112,10 +112,10 @@ class TestPrefixScopedWipe:
     def test_make_at_home_removes_only_that_kid(self, app_module, client, skylight, kid_ids):
         pick(client, kid_ids["Parker"], ENTREES[0])
         pick(client, kid_ids["Kylee"], ENTREES[1])
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
 
         pick(client, kid_ids["Parker"], MAKE_AT_HOME)
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
 
         assert skylight.summaries() == ["K- Hot Dog"]
 
@@ -125,7 +125,7 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Parker"], MAKE_AT_HOME)
         pick(client, kid_ids["Kylee"], MAKE_AT_HOME)
 
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert str(stray.id) not in skylight.deleted_ids
         assert result["deleted"] == 0
@@ -145,7 +145,7 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Parker"], MAKE_AT_HOME)
         pick(client, kid_ids["Kylee"], MAKE_AT_HOME)
 
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert "stray-1" not in skylight.deleted_ids
         assert result["deleted"] == 0
@@ -160,7 +160,7 @@ class TestPrefixScopedWipe:
         pick(client, kid_ids["Parker"], ENTREES[0])
         pick(client, kid_ids["Kylee"], ENTREES[1])
 
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert str(dup1.id) in skylight.deleted_ids
         assert str(dup2.id) in skylight.deleted_ids
@@ -175,7 +175,7 @@ class TestUnpickedKidsDefaultToMakeAtHome:
     def test_a_kid_with_no_selection_gets_no_sitting(self, app_module, client, skylight, kid_ids):
         pick(client, kid_ids["Parker"], ENTREES[0])  # Kylee never picked
 
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert skylight.summaries() == ["P- Cheese Pizza"]
         statuses = {r["kid_name"]: r["status"] for r in result["results"]}
@@ -183,7 +183,7 @@ class TestUnpickedKidsDefaultToMakeAtHome:
 
     def test_the_default_is_recorded_as_make_at_home(self, app_module, client, skylight, kid_ids):
         pick(client, kid_ids["Parker"], ENTREES[0])
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
 
         with app_module.get_db() as conn:
             row = conn.execute(
@@ -199,7 +199,7 @@ class TestFailureReporting:
         pick(client, kid_ids["Parker"], ENTREES[0])
         pick(client, kid_ids["Kylee"], ENTREES[1])
 
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert result["ok"] is False
         assert len(result["errors"]) == 1
@@ -261,7 +261,7 @@ class TestFailureReporting:
     def test_the_client_is_always_closed(self, app_module, client, skylight, kid_ids):
         skylight.fail_create_recipe_for.add("P- Cheese Pizza")
         pick(client, kid_ids["Parker"], ENTREES[0])
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
         assert skylight.closed is True
 
     def test_list_sittings_failure_aborts_send(self, app_module, client, skylight, kid_ids):
@@ -272,7 +272,7 @@ class TestFailureReporting:
             raise RuntimeError("simulated list_sittings failure")
 
         skylight.list_sittings = _fail
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert result["ok"] is False
         assert "list_sittings" in result["message"]
@@ -285,7 +285,7 @@ class TestDatabaseFailureIsolation:
 
     def test_a_failed_write_still_leaves_the_calendar_correct(self, app_module, client, skylight, kid_ids):
         pick(client, kid_ids["Parker"], ENTREES[0])
-        app_module.send_day_to_skylight(MENU_DATE)
+        send_day(client)
         original = skylight.sittings[0]
 
         pick(client, kid_ids["Parker"], ENTREES[1])
@@ -300,7 +300,7 @@ class TestDatabaseFailureIsolation:
                 """
             )
             conn.commit()
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
 
         assert result["ok"] is False
         assert any("persistence" in e for e in result["errors"])
@@ -310,16 +310,16 @@ class TestDatabaseFailureIsolation:
 
 
 class TestConfigGuards:
-    def test_missing_frame_id_is_reported_not_raised(self, app_module, monkeypatch):
+    def test_missing_frame_id_is_reported_not_raised(self, app_module, client, monkeypatch):
         monkeypatch.setattr(app_module, "skylight_frame_id", lambda: "")
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
         assert result["ok"] is False
         assert "SKYLIGHT_FRAME_ID" in result["message"]
 
     def test_missing_lunch_category_is_reported(self, app_module, client, skylight, kid_ids):
         skylight.categories = [c for c in skylight.categories if c.label != "Lunch"]
         pick(client, kid_ids["Parker"], ENTREES[0])
-        result = app_module.send_day_to_skylight(MENU_DATE)
+        result = send_day(client).json()
         assert result["ok"] is False
         assert "Lunch" in result["message"]
 
