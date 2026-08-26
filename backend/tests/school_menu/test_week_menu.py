@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from lunch_planner.persistence import database as db
+import database_support as db
+
 from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig
 from lunch_planner.school_menu.week_menu import WeekMenu
 

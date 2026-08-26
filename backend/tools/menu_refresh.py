@@ -7,7 +7,7 @@ import argparse
 import sys
 
 from lunch_planner.menu_catalog.refresh import default_menu_catalog_refresh
-from lunch_planner.persistence import database as db
+from lunch_planner.persistence.connection import DEFAULT_DB_PATH
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.parse_args(argv)
 
-    outcome = default_menu_catalog_refresh(db.DEFAULT_DB_PATH).refresh()
+    outcome = default_menu_catalog_refresh(DEFAULT_DB_PATH).refresh()
     stream = sys.stdout if outcome.succeeded else sys.stderr
     print(outcome.message, file=stream)
     if outcome.status == "not_configured":

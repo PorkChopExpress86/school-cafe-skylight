@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import database_support as db
 import pytest
 from conftest import ENTREES, MENU_DATE, FakeObj
 
-from lunch_planner.persistence import database as db
-from lunch_planner.persistence.database import MAKE_AT_HOME
+from lunch_planner.planner.persistence import MAKE_AT_HOME
 
 
 def pick(client, kid_id, selection, menu_date=MENU_DATE):

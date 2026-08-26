@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import database_support as db
 import pytest
 
 from lunch_planner.menu_catalog.casing import pin_display_overrides_for_all_items
-from lunch_planner.persistence import database as db
 
 
 class FakeCasing:

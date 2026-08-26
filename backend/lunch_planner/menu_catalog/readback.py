@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from lunch_planner.menu_catalog import persistence as db
 from lunch_planner.menu_catalog.display import MenuItemDisplay
-from lunch_planner.persistence import database as db
 
 
 @dataclass(frozen=True)

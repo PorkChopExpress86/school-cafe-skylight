@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lunch_planner.persistence import database as db
+from lunch_planner.persistence import connection as db
 
 
 def test_database_path_uses_environment_override() -> None:

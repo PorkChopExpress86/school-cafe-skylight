@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import database_support as db
+
 from lunch_planner.menu_catalog.readback import MenuCatalogReadback
 from lunch_planner.menu_catalog.refresh import MenuCatalogRefreshResult
-from lunch_planner.persistence import database as db
 
 
 def test_menu_catalog_readback_resolves_orders_and_summarizes(tmp_path):

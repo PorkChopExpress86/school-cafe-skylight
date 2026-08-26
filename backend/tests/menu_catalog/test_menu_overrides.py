@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lunch_planner.persistence.database import clear_menu_override, fetch_all_overrides, set_menu_override
+from lunch_planner.menu_catalog.persistence import clear_menu_override, fetch_all_overrides, set_menu_override
 
 
 @pytest.fixture

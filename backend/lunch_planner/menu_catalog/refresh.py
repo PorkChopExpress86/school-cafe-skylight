@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from lunch_planner.persistence import database as db
+from lunch_planner.menu_catalog import persistence as db
 from lunch_planner.school_menu.school_cafe_adapter import SchoolCafeConfig
 from lunch_planner.school_menu.source import SchoolCafeMenuSource, SchoolMenuSource
 

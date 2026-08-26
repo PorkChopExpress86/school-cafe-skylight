@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from lunch_planner.persistence import database as db
+from lunch_planner.planner import persistence as db
 from lunch_planner.school_menu.school_cafe_adapter import get_week_dates
 from lunch_planner.school_menu.week_menu import read_week_menu
 

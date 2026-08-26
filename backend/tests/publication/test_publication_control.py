@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import date
 
+import database_support as db
 from conftest import FakeSkylightClient
 
-from lunch_planner.persistence import database as db
 from lunch_planner.publication.control import PublicationControl
 
 

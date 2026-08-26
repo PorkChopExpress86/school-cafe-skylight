@@ -76,7 +76,7 @@ def pin_display_overrides_for_all_items(
     ones the heuristic flags, so a parent can re-case the whole library at
     once and correct anything wrong via the Display Override table.
     """
-    from lunch_planner.persistence.database import fetch_unique_menu_items, set_menu_override
+    from lunch_planner.menu_catalog.persistence import fetch_unique_menu_items, set_menu_override
 
     adapter = casing if casing is not None else AgyCasingAdapter()
     unique_items = fetch_unique_menu_items(db_path)

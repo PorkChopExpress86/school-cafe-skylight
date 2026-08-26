@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from lunch_planner.menu_catalog import persistence as db
 from lunch_planner.menu_catalog.display import MenuItemDisplay
-from lunch_planner.persistence import database as db
 from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig, get_week_dates
 from lunch_planner.school_menu.source import SchoolCafeMenuSource, SchoolMenuSource
 

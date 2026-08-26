@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import database_support as db
 from conftest import ENTREES, MENU_DATE
 
-from lunch_planner.persistence import database as db
-from lunch_planner.persistence.database import MAKE_AT_HOME
+from lunch_planner.planner.persistence import MAKE_AT_HOME
 
 
 def select(client, kid_id, selection, menu_date=MENU_DATE):

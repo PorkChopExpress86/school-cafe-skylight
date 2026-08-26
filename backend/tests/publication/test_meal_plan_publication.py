@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from datetime import date
 from threading import Event
 
-from lunch_planner.persistence import database as db
+import database_support as db
+
 from lunch_planner.publication.publisher import MealPlanPublisher, SkylightRecipe, SkylightSitting
 
 

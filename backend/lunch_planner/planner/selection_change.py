@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from lunch_planner.persistence import database as db
+from lunch_planner.planner import persistence as db
 from lunch_planner.planner.readback import PlannerReadback
 
 

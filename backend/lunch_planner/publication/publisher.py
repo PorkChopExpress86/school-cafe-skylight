@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Protocol
 
-from lunch_planner.persistence import database as db
+from lunch_planner.planner import persistence as db
 from lunch_planner.publication.models import (
     DatePublicationOutcome,
     DatePublicationStatus,

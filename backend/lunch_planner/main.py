@@ -21,10 +21,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from lunch_planner.menu_catalog import persistence as catalog_persistence
 from lunch_planner.menu_catalog.casing import pin_display_overrides_for_all_items
 from lunch_planner.menu_catalog.readback import MenuCatalogReadback
 from lunch_planner.menu_catalog.refresh import default_menu_catalog_refresh
-from lunch_planner.persistence import database as db
+from lunch_planner.persistence.connection import DEFAULT_DB_PATH
+from lunch_planner.persistence.connection import get_db as open_database
+from lunch_planner.persistence.schema import init_db as initialize_database
 from lunch_planner.planner.readback import WeekPlannerReadback
 from lunch_planner.planner.selection_change import SelectionChange, UnknownKidError
 from lunch_planner.publication.control import PublicationControl
@@ -35,7 +38,7 @@ from lunch_planner.publication.skylight_adapter import (
 from lunch_planner.school_menu.school_cafe_adapter import get_week_dates
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = db.DEFAULT_DB_PATH
+DB_PATH = DEFAULT_DB_PATH
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -45,12 +48,12 @@ logger = logging.getLogger(__name__)
 
 @contextmanager
 def get_db():
-    with db.get_db(DB_PATH) as conn:
+    with open_database(DB_PATH) as conn:
         yield conn
 
 
 def init_db() -> None:
-    db.init_db(DB_PATH)
+    initialize_database(DB_PATH)
 
 
 @asynccontextmanager
@@ -207,8 +210,8 @@ def api_admin() -> dict:
 
 @app.post("/api/admin/override")
 def api_admin_override(req: OverrideRequest) -> dict:
-    db.set_menu_override(req.original, req.replacement, DB_PATH)
-    return {"ok": True, "overrides": db.fetch_all_overrides(DB_PATH)}
+    catalog_persistence.set_menu_override(req.original, req.replacement, DB_PATH)
+    return {"ok": True, "overrides": catalog_persistence.fetch_all_overrides(DB_PATH)}
 
 
 @app.post("/api/admin/sync")

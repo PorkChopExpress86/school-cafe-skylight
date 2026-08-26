@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, date, datetime
 
+import database_support as db
+
 from lunch_planner.menu_catalog import refresh as menu_catalog_refresh
 from lunch_planner.menu_catalog.refresh import MenuCatalogRefresh, MenuCatalogRefreshResult
-from lunch_planner.persistence import database as db
 from lunch_planner.school_menu.school_cafe_adapter import DayMenu, MenuItem, SchoolCafeConfig
 from tools import menu_refresh as menu_sync
 
